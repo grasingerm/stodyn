@@ -1,6 +1,26 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import argparse
+import time
+
+parser = argparse.ArgumentParser(description='Simulation of Brownian motion in 1D')
+parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
+parser.add_argument('--gamma', type=float, default=1.0, help='drag coefficient')
+parser.add_argument('--kT', type=float, default=1.0, help='temperature')
+parser.add_argument('--k', type=float, default=0.0, help='spring constant')
+parser.add_argument('--dt', type=float, default=0.01, help='time step')
+parser.add_argument('--nsteps', type=int, default=100000, help='number of steps')
+parser.add_argument('--x0', type=float, default=2.0, help='initial x position')
+parser.add_argument('--v0', type=float, default=0.0, help='initial x velocity')
+parser.add_argument('--outfreq', type=int, default=100, help='number of iterations per diagnostic information')
+parser.add_argument('--outdir', type=str, default="temp", help='output directory')
+parser.add_argument('--do_plots', default=False, action="store_true", help='create plots of microstates and clusters')
+parser.add_argument('--seed', type=int, help='seed for random number generator')
+
+#namespace_args = parser.parse_args()
+#args = vars(namespace_args)
+args = parser.parse_args()
 
 def langevin_simulation(mass=1.0, gamma=1.0, kBT=1.0, k=1.0, 
                         dt=0.01, n_steps=5000, x0=2.0, v0=0.0):
@@ -44,7 +64,7 @@ def langevin_simulation(mass=1.0, gamma=1.0, kBT=1.0, k=1.0,
     v[0] = v0
     
     # Noise strength: sqrt(2 * gamma * kBT / mass / dt)
-    noise_strength = np.sqrt(2 * gamma * kBT / mass / dt)
+    noise_strength = np.sqrt(2 * gamma * kBT / mass)
     
     # Euler-Maruyama integration
     for i in range(n_steps - 1):
@@ -216,30 +236,26 @@ def print_statistics(stats):
 
 # Main execution
 if __name__ == "__main__":
-    # Set random seed for reproducibility
-    np.random.seed(42)
-    
-    # Simulation parameters
-    params = {
-        'mass': 1.0,
-        'gamma': 1.0,
-        'kBT': 1.0,
-        'k': 1.0,
-        'dt': 0.01,
-        'n_steps': 10000,
-        'x0': 2.0,
-        'v0': 0.0
-    }
+    if args.seed != None:
+        np.random.seed(args.seed)
+        print(f"Using seed {args.seed}...")
+    else:
+        np.random.seed()
     
     print("\nRunning Langevin dynamics simulation...")
-    print(f"Parameters: m={params['mass']}, γ={params['gamma']}, k_BT={params['kBT']}, k={params['k']}")
-    print(f"Time step: dt={params['dt']}, Total steps: {params['n_steps']}")
+    print(f"Parameters: m={args.m}, γ={args.gamma}, k_BT={args.kT}, k={args.k},")
+    print(f"            x0={args.x0}, v0={args.v0}")
+    print(f"Time step: dt={args.dt}, Total steps: {args.nsteps}")
     
     # Run simulation
-    t, x, v = langevin_simulation(**params)
+    t, x, v = langevin_simulation(mass=args.m, gamma=args.gamma,
+                                  kBT=args.kT, k=args.k,
+                                  dt=args.dt, n_steps=args.nsteps,
+                                  x0=args.x0, v0=args.v0
+                                  )
     
     # Analyze statistics
-    stats = analyze_statistics(x, v, params['mass'], params['kBT'], params['k'])
+    stats = analyze_statistics(x, v, args.m, args.kT, args.k)
     
     # Print results
     print_statistics(stats)
