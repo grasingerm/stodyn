@@ -11,7 +11,8 @@ parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
 parser.add_argument('--gamma', type=float, default=1.0, help='drag coefficient')
 parser.add_argument('--kT', type=float, default=1.0, help='temperature')
 parser.add_argument('--gradp', type=float, default=1.0, help='pressure gradient')
-parser.add_argument('--a', type=float, default=1.0, help='amplitude of the "weave" potential')
+parser.add_argument('--A', type=float, default=1.0, help='amplitude of the "weave" potential')
+parser.add_argument('--a', type=float, default=1.0, help='shape factor of the "weave" potential, greater "a" corresponds with sharper peaks and flatter wells')
 parser.add_argument('--L', type=float, default=1.0, help='distance between peaks of "weave" potential in x-y direction')
 parser.add_argument('--M', type=float, default=1.0, help='distance between peaks of "weave" potential in x+y direction')
 parser.add_argument('--dt', type=float, default=0.01, help='time step')
@@ -29,15 +30,15 @@ parser.add_argument('--seed', type=int, help='seed for random number generator')
 nargs = parser.parse_args()
 args = vars(nargs)
 
-def U(x, y, a=1.0, w1=2*np.pi, w2=2*np.pi):
-    return np.exp(a*(np.sin(w1*(x-y)) + np.sin(w2*(x+y))))
+def U(x, y, A=1.0, a=1.0, w1=2*np.pi, w2=2*np.pi):
+    return A*np.exp(a*(np.sin(w1*(x-y)) + np.sin(w2*(x+y))))
 
-def gradU(x, y, a=1.0, w1=2*np.pi, w2=2*np.pi):
+def gradU(x, y, A=1.0, a=1.0, w1=2*np.pi, w2=2*np.pi):
     arg1 = w1*(x-y)
     arg2 = w2*(x+y)
     s1, s2, c1, c2 = np.sin(arg1), np.sin(arg2), np.cos(arg1), np.cos(arg2)
-    A = a*np.exp(a*(s1 + s2))
-    return np.array([A*(w1*c1 + w2*c2), A*(-w1*c1 + w2*c2)])
+    A1 = a*np.exp(a*(s1 + s2))
+    return A*np.array([A1*(w1*c1 + w2*c2), A1*(-w1*c1 + w2*c2)])
         
 def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     """
@@ -379,7 +380,17 @@ if __name__ == "__main__":
     print(f"            gradp={nargs.gradp}, a={nargs.a}, L={nargs.L}, M={nargs.M},")
     print(f"            x0={nargs.x0}, y0={nargs.y0}, u0={nargs.u0}, v0={nargs.v0}")
     print(f"Time step: dt={nargs.dt}, Total steps: {nargs.nsteps}, Total trajectories: {nargs.ntrajs}")
-    
+  
+    A, kT = nargs.A, nargs.kT
+    args['alpha'] = A / kT          # barrier to thermal energy ratio
+    gradp, L = nargs.gradp, nargs.L
+    args['beta'] = gradp * L / kT   # Peclet number
+    args['eps'] = gradp * L / A     # Tilting parameter
+    M, gamma, m = nargs.M, nargs.gamma, nargs.m
+    args['lambda'] = L / M          # Aspect ratio
+    args['zeta'] = gamma**2 / (4*m*A/L**2)
+    args['tau'] = kT / (gamma * L**2)
+
     # Run simulation
     t, x, y, u, v = langevin_simulation(**args)
     
