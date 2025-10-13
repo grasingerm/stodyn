@@ -27,7 +27,7 @@ parser.add_argument('--x0', type=float, default=0.0, help='initial x position')
 parser.add_argument('--y0', type=float, default=0.0, help='initial y position')
 parser.add_argument('--u0', type=float, default=0.0, help='initial x velocity')
 parser.add_argument('--v0', type=float, default=0.0, help='initial y velocity')
-parser.add_argument('--outfreq', type=int, default=100, help='number of iterations per diagnostic information')
+parser.add_argument('--outfreq', type=int, default=1, help='number of iterations per diagnostic information')
 parser.add_argument('--outdir', type=str, default="temp", help='output directory')
 parser.add_argument('--do_plots', default=False, action="store_true", help='create plots of microstates and clusters')
 parser.add_argument('--seed', type=int, help='seed for random number generator')
@@ -181,10 +181,10 @@ def run_single_trajectory(params):
     u0 = params['u0']
     v0 = params['v0']
     traj_seed = params['traj_seed']
-    
+
     # Set random seed for this trajectory (different for each trajectory)
     np.random.seed(traj_seed)
-    
+
     # Initialize arrays
     t = np.zeros(nsteps)
     x = np.zeros(nsteps)
@@ -223,7 +223,8 @@ def run_single_trajectory(params):
         
         t[i + 1] = t[i] + dt
 
-    return t, x, y, u, v
+    incr = args['outfreq']
+    return t[::incr], x[::incr], y[::incr], u[::incr], v[::incr]
 
 def langevin_simulation_parallel(params):
     """
