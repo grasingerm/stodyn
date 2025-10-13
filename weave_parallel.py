@@ -9,6 +9,7 @@ from multiprocessing import Pool, cpu_count
 import json
 from pathlib import Path
 import copy
+import time
 
 parser = argparse.ArgumentParser(description='Simulation of pressure-driven Brownian motion through a 2D weave', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
@@ -164,51 +165,118 @@ def run_single_trajectory(params):
     t, x, v : arrays
         Time, position, and velocity trajectories
     """
+
+    # Unpack parameters
+    m = params['m']
+    gamma = params['gamma']
+    kT = params['kT']
+    gradp = params['gradp']
+    a = params['a']
+    L = params['L']
+    M = params['M']
+    dt = params['dt']
+    nsteps = params['nsteps']
+    x0 = params['x0']
+    y0 = params['y0']
+    u0 = params['u0']
+    v0 = params['v0']
+    traj_seed = params['traj_seed']
+    
+    # Set random seed for this trajectory (different for each trajectory)
+    np.random.seed(traj_seed)
     
     # Initialize arrays
-    t = np.zeros(nsteps*ntrajs)
-    x = np.zeros(nsteps*ntrajs)
-    y = np.zeros(nsteps*ntrajs)
-    u = np.zeros(nsteps*ntrajs)
-    v = np.zeros(nsteps*ntrajs)
+    t = np.zeros(nsteps)
+    x = np.zeros(nsteps)
+    y = np.zeros(nsteps)
+    u = np.zeros(nsteps)
+    v = np.zeros(nsteps)
         
     # Noise strength: sqrt(2 * gamma * kBT / mass)
     noise_strength = np.sqrt(2 * gamma * kT / m)
  
-    i = 0
-    for itr in range(ntrajs):
-        x[i] = x0
-        y[i] = y0
-        u[i] = u0
-        v[i] = v0
-        
-        # Euler-Maruyama integration
-        for step in range(nsteps - 1):
-            # Deterministic force
-            F = np.array([
-                    gradp - gamma*u[i],
-                    -gamma*v[i]
-                ]) - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
-            Fx, Fy = F
-            
-            # Random force from standard normal distribution
-            Frx = noise_strength * np.random.randn()
-            Fry = noise_strength * np.random.randn()
-            
-            # Update velocity: dv = F/m*dt + noise*sqrt(dt)
-            u[i + 1] = u[i] + Fx / m* dt + Frx * np.sqrt(dt)
-            v[i + 1] = v[i] + Fy / m* dt + Fry * np.sqrt(dt)
-            
-            # Update position
-            x[i + 1] = x[i] + u[i + 1] * dt
-            y[i + 1] = y[i] + v[i + 1] * dt
-            
-            t[i + 1] = t[i] + dt
-
-            # Increment i
-            i += 1
+    x[0] = x0
+    y[0] = y0
+    u[0] = u0
+    v[0] = v0
     
+    # Euler-Maruyama integration
+    for i in range(nsteps - 1):
+        # Deterministic force
+        F = np.array([
+                gradp - gamma*u[i],
+                -gamma*v[i]
+            ]) - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
+        Fx, Fy = F
+        
+        # Random force from standard normal distribution
+        Frx = noise_strength * np.random.randn()
+        Fry = noise_strength * np.random.randn()
+        
+        # Update velocity: dv = F/m*dt + noise*sqrt(dt)
+        u[i + 1] = u[i] + Fx / m* dt + Frx * np.sqrt(dt)
+        v[i + 1] = v[i] + Fy / m* dt + Fry * np.sqrt(dt)
+        
+        # Update position
+        x[i + 1] = x[i] + u[i + 1] * dt
+        y[i + 1] = y[i] + v[i + 1] * dt
+        
+        t[i + 1] = t[i] + dt
+
     return t, x, y, u, v
+
+def langevin_simulation_parallel(params):
+    """
+    Run multiple Langevin simulations in parallel.
+    
+    Parameters:
+    -----------
+    ncores : int or None
+        Number of CPU cores to use. If None, uses all available cores.
+    seed : int or None
+        Base seed for random number generation. Each trajectory gets seed + traj_index.
+    
+    Returns:
+    --------
+    t, x, y, u, v : arrays
+        Concatenated trajectories from all simulations
+    """
+    
+    # Determine number of cores
+    ntrajs = params['ntrajs']
+    ncores = params['ncores']
+    if ncores is None:
+        ncores = cpu_count()
+    ncores = min(ncores, ntrajs)  # Don't use more cores than trajectories
+    
+    print(f"Running {ntrajs} trajectories in parallel using {ncores} cores...")
+    
+    # Set base seed
+    seed = params['seed']
+    if seed is None:
+        seed = np.random.randint(0, 2**31)
+    
+    # Prepare parameter dictionaries for each trajectory
+    param_list = []
+    for i in range(ntrajs):
+        params_i = copy.copy(params)
+        params_i['traj_seed'] = seed + i  # Unique seed for each trajectory
+        param_list.append(params_i)
+    
+    # Run simulations in parallel
+    with Pool(ncores) as pool:
+        results = pool.map(run_single_trajectory, param_list)
+    
+    # Concatenate results
+    t_all = np.concatenate([r[0] for r in results])
+    x_all = np.concatenate([r[1] for r in results])
+    y_all = np.concatenate([r[2] for r in results])
+    u_all = np.concatenate([r[3] for r in results])
+    v_all = np.concatenate([r[4] for r in results])
+    
+    print(f"Parallel simulation complete!")
+    
+    return t_all, x_all, y_all, u_all, v_all
 
 
 def analyze_statistics(x, y, u, v, mass, kBT, equilibration_fraction=0.8):
@@ -362,12 +430,20 @@ def print_statistics(stats):
 
 # Main execution
 if __name__ == "__main__":
+    # Make path to outdir
+    directory_path = Path(args['outdir'])
+    directory_path.mkdir(parents=True, exist_ok=True)
+    print(f"Directory '{directory_path}' is ready to use.")
+
     # Set random seed for reproducibility
     if nargs.seed != None:
         np.random.seed(nargs.seed)
         print(f"Using seed {nargs.seed}...")
     else:
-        np.random.seed()
+        # Seed with current time (in nanoseconds for more randomness)
+        seed = int(time.time() * 1e9) % (2**32)
+        np.random.seed(seed)
+        args['seed'] = seed
 
     print("\nRunning Langevin dynamics simulation...")
     print(f"Parameters: m={nargs.m}, γ={nargs.gamma}, k_BT={nargs.kT},")
@@ -386,11 +462,11 @@ if __name__ == "__main__":
     args['tau'] = kT / (gamma * L**2)
    
     
-    #with open(os.path.join(args['outdir'], 'params.json'), 'w') as json_file:
-    #    json.dump(args, json_file, indent=4)
+    with open(os.path.join(args['outdir'], 'params.json'), 'w') as json_file:
+        json.dump(args, json_file, indent=4)
 
     # Run simulation
-    t, x, y, u, v = langevin_simulation(**args)
+    t, x, y, u, v = langevin_simulation_parallel(args)
     
     # Analyze statistics
     stats = analyze_statistics(x, y, u, v, args['m'], args['kT'])
