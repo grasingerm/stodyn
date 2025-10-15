@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import copy
 import time
+import pandas as pd
 
 parser = argparse.ArgumentParser(description='Simulation of pressure-driven Brownian motion through a 2D weave', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
@@ -279,8 +280,59 @@ def langevin_simulation_parallel(params):
     
     return t_all, x_all, y_all, u_all, v_all
 
+def ensemble_avg(z, ntrajs, nsteps):
+    z_trajs = z.reshape(ntrajs, nsteps)
+    z_mean = np.mean(z_trajs, axis=0)
+    return z_mean
 
-def analyze_statistics(x, y, u, v, mass, kBT, equilibration_fraction=0.8):
+def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps):
+    """
+    Compute diffusion coefficient from multiple trajectories.
+    
+    Returns:
+    --------
+    D_xx, D_yy, D_xy : floats
+        Components of diffusion tensor
+    """
+    # Reshape to separate trajectories
+    x_trajs = x.reshape(ntrajs, nsteps)
+    y_trajs = y.reshape(ntrajs, nsteps)
+    t_single = t[:nsteps]
+    
+    # Compute mean trajectory (ensemble average)
+    x_mean = np.mean(x_trajs, axis=0)
+    y_mean = np.mean(y_trajs, axis=0)
+    
+    # Compute deviations from mean
+    dx = x_trajs - x_mean[np.newaxis, :]
+    dy = y_trajs - y_mean[np.newaxis, :]
+    
+    # Compute mean squared deviations
+    msd_x = np.mean(dx**2, axis=0)
+    msd_y = np.mean(dy**2, axis=0)
+    msd_xy = np.mean(dx * dy, axis=0)
+    
+    # Linear fit to extract diffusion coefficient
+    # MSD = 2*D*t, so D = slope / 2
+    # Use later times for fitting (equilibrated regime)
+    fit_start = nsteps // 2  # Use second half
+    
+    # Fit MSD_x vs t
+    coeffs_x = np.polyfit(t_single[fit_start:], msd_x[fit_start:], 1)
+    D_xx = coeffs_x[0] / 2
+    
+    # Fit MSD_y vs t
+    coeffs_y = np.polyfit(t_single[fit_start:], msd_y[fit_start:], 1)
+    D_yy = coeffs_y[0] / 2
+    
+    # Fit cross-correlation
+    coeffs_xy = np.polyfit(t_single[fit_start:], msd_xy[fit_start:], 1)
+    D_xy = coeffs_xy[0] / 2
+    
+    return D_xx, D_yy, D_xy, msd_x, msd_y, t_single
+
+def analyze_statistics(x, y, u, v, ntrajs, nsteps, mass, 
+                       kBT, equilibration_fraction=1.0):
     """
     Calculate statistics from the trajectory and compare with theory.
     
@@ -322,6 +374,14 @@ def analyze_statistics(x, y, u, v, mass, kBT, equilibration_fraction=0.8):
     
     # Theoretical predictions from equipartition theorem
     v_var_theory = kBT / mass  # <v^2> = kBT/m (Maxwell-Boltzmann)
+
+    # Diffusion coefficients
+    D_xx, D_yy, D_xy, msd_x, msd_y, t_single = compute_diffusion_coefficient(x, y, t, ntrajs, nsteps)
+
+    # Mobility
+    xea = ensemble_avg(x, ntrajs, nsteps)
+    yea = ensemble_avg(x, ntrajs, nsteps)
+    # TODO pick up here
     
     stats = {
         'x_mean': x_mean,
@@ -432,7 +492,8 @@ def print_statistics(stats):
 # Main execution
 if __name__ == "__main__":
     # Make path to outdir
-    directory_path = Path(args['outdir'])
+    outdir = args['outdir']
+    directory_path = Path(outdir)
     directory_path.mkdir(parents=True, exist_ok=True)
     print(f"Directory '{directory_path}' is ready to use.")
 
@@ -468,6 +529,17 @@ if __name__ == "__main__":
 
     # Run simulation
     t, x, y, u, v = langevin_simulation_parallel(args)
+
+    # Save trajectories
+    data_dict = {
+            'time': t,
+            'x': x,
+            'y': y,
+            'u': u,
+            'v': v
+            }
+    df = pd.DataFrame(data_dict)
+    df.to_csv(os.path.join(outdir, 'trajs.csv'), index=False)
     
     # Analyze statistics
     stats = analyze_statistics(x, y, u, v, args['m'], args['kT'])
