@@ -11,26 +11,32 @@ from pathlib import Path
 import copy
 import time
 import pandas as pd
+from pprint import pprint
+from scipy.integrate import simpson
 
 parser = argparse.ArgumentParser(description='Simulation of pressure-driven Brownian motion through a 2D weave', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
 parser.add_argument('--gamma', type=float, default=1.0, help='drag coefficient')
 parser.add_argument('--kT', type=float, default=1.0, help='temperature')
-parser.add_argument('--gradp', type=float, default=1.0, help='pressure gradient')
+parser.add_argument('--Fpx', type=float, default=1.0, help='force from pressure gradient in x direction')
+parser.add_argument('--Fpy', type=float, default=0.0, help='force from pressure gradient in y direction')
 parser.add_argument('--A', type=float, default=1.0, help='amplitude of the "weave" potential')
 parser.add_argument('--a', type=float, default=1.0, help='shape factor of the "weave" potential, greater "a" corresponds with sharper peaks and flatter wells')
 parser.add_argument('--L', type=float, default=1.0, help='distance between peaks of "weave" potential in x-y direction')
 parser.add_argument('--M', type=float, default=1.0, help='distance between peaks of "weave" potential in x+y direction')
-parser.add_argument('--dt', type=float, default=0.01, help='time step')
-parser.add_argument('--nsteps', type=int, default=2000, help='number of steps')
+parser.add_argument('--dt', type=float, default=0.001, help='time step')
+parser.add_argument('--nsteps', type=int, default=20000, help='number of steps')
 parser.add_argument('--ntrajs', type=int, default=100, help='number of trajectories')
 parser.add_argument('--x0', type=float, default=0.0, help='initial x position')
 parser.add_argument('--y0', type=float, default=0.0, help='initial y position')
 parser.add_argument('--u0', type=float, default=0.0, help='initial x velocity')
 parser.add_argument('--v0', type=float, default=0.0, help='initial y velocity')
 parser.add_argument('--outfreq', type=int, default=1, help='number of iterations per diagnostic information')
+parser.add_argument('--eqfrac', type=float, default=0.1, help='fraction of trajectories assumed to be equilibrated')
+parser.add_argument('--max-lag', type=int, help='maximum amount of lag in steps for computing velocity autocorrelations')
 parser.add_argument('--outdir', type=str, default="temp", help='output directory')
-parser.add_argument('--do_plots', default=False, action="store_true", help='create plots of microstates and clusters')
+parser.add_argument('--do_plots', default=False, action="store_true", help='create plots')
+parser.add_argument('--show_plots', default=False, action="store_true", help='show plots')
 parser.add_argument('--seed', type=int, help='seed for random number generator')
 parser.add_argument('--ncores', type=int, default=None, help='number of cores to use (default: all available)')
 
@@ -171,7 +177,7 @@ def run_single_trajectory(params):
     m = params['m']
     gamma = params['gamma']
     kT = params['kT']
-    gradp = params['gradp']
+    Fpx, Fpy = params['Fpx'], params['Fpy']
     a = params['a']
     L = params['L']
     M = params['M']
@@ -205,8 +211,8 @@ def run_single_trajectory(params):
     for i in range(nsteps - 1):
         # Deterministic force
         F = np.array([
-                gradp - gamma*u[i],
-                -gamma*v[i]
+                Fpx - gamma*u[i],
+                Fpy -gamma*v[i]
             ]) - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
         Fx, Fy = F
         
@@ -285,7 +291,7 @@ def ensemble_avg(z, ntrajs, nsteps):
     z_mean = np.mean(z_trajs, axis=0)
     return z_mean
 
-def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps):
+def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps, eqfrac=0.5):
     """
     Compute diffusion coefficient from multiple trajectories.
     
@@ -294,11 +300,10 @@ def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps):
     D_xx, D_yy, D_xy : floats
         Components of diffusion tensor
     """
-    # Reshape to separate trajectories
     x_trajs = x.reshape(ntrajs, nsteps)
     y_trajs = y.reshape(ntrajs, nsteps)
     t_single = t[:nsteps]
-    
+
     # Compute mean trajectory (ensemble average)
     x_mean = np.mean(x_trajs, axis=0)
     y_mean = np.mean(y_trajs, axis=0)
@@ -315,7 +320,7 @@ def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps):
     # Linear fit to extract diffusion coefficient
     # MSD = 2*D*t, so D = slope / 2
     # Use later times for fitting (equilibrated regime)
-    fit_start = nsteps // 2  # Use second half
+    fit_start = int(min(np.floor(nsteps*eqfrac), nsteps-1))  # Use second half
     
     # Fit MSD_x vs t
     coeffs_x = np.polyfit(t_single[fit_start:], msd_x[fit_start:], 1)
@@ -330,9 +335,71 @@ def compute_diffusion_coefficient(x, y, t, ntrajs, nsteps):
     D_xy = coeffs_xy[0] / 2
     
     return D_xx, D_yy, D_xy, msd_x, msd_y, t_single
+    
+def compute_vacf(u, v, ntrajs, nsteps, max_lag=None):
+    """
+    Compute velocity autocorrelation function.
+    
+    Parameters:
+    -----------
+    u, v : arrays
+        Velocity components (all trajectories concatenated)
+    ntrajs : int
+        Number of trajectories
+    nsteps : int
+        Steps per trajectory
+    max_lag : int or None
+        Maximum lag time (in steps)
+    
+    Returns:
+    --------
+    C_uu, C_vv, C_uv, C_vu : arrays
+        VACF for xx, yy, xy, and yx components
+    """
+    # Reshape to separate trajectories
+    u_trajs = u.reshape(ntrajs, nsteps)
+    v_trajs = v.reshape(ntrajs, nsteps)
+    
+    # Remove mean (drift)
+    u_mean = ensemble_avg(u, ntrajs, nsteps)
+    v_mean = ensemble_avg(v, ntrajs, nsteps)
+    du = u_trajs - u_mean[np.newaxis, :]
+    dv = v_trajs - v_mean[np.newaxis, :]
+    
+    if max_lag is None:
+        max_lag = nsteps // 4  # Use first quarter for good statistics
+    
+    C_uu = np.zeros(max_lag)
+    C_vv = np.zeros(max_lag)
+    C_uv = np.zeros(max_lag)
+    C_vu = np.zeros(max_lag)
+    
+    # Compute autocorrelation
+    for lag in range(max_lag):
+        # Average over all time origins and trajectories
+        for t0 in range(nsteps - lag):
+            C_uu[lag] += np.mean(du[:, t0] * du[:, t0 + lag])
+            C_vv[lag] += np.mean(dv[:, t0] * dv[:, t0 + lag])
+            C_uv[lag] += np.mean(du[:, t0] * dv[:, t0 + lag])
+            C_vu[lag] += np.mean(dv[:, t0] * du[:, t0 + lag])
+        
+        C_uu[lag] /= (nsteps - lag)
+        C_vv[lag] /= (nsteps - lag)
+        C_uv[lag] /= (nsteps - lag)
+        C_vu[lag] /= (nsteps - lag)
+    
+    return C_uu, C_vv, C_uv, C_vu
 
-def analyze_statistics(x, y, u, v, ntrajs, nsteps, mass, 
-                       kBT, equilibration_fraction=1.0):
+def compute_correlation_times(C_uu_norm, C_vv_norm, dt):
+    return simpson(C_uu_norm, dx=dt), simpson(C_vv_norm, dx=dt)
+
+def compute_diffusion_from_vacf(C_uu, C_vv, C_uv, C_vu, dt):
+    """
+    Compute diffusion coefficient from VACF using Green-Kubo.
+    """
+    return simpson(C_uu, dx=dt), simpson(C_vv, dx=dt), simpson(C_uv, dx=dt), simpson(C_vu, dx=dt)
+
+def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.5):
     """
     Calculate statistics from the trajectory and compare with theory.
     
@@ -342,9 +409,9 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, mass,
         Position trajectories
     u, v : arrays
         Velocity trajectories
-    mass : float
+    m : float
         Particle mass
-    kBT : float
+    kT : float
         Thermal energy
     equilibration_fraction : float
         Fraction of trajectory to skip for equilibration
@@ -355,34 +422,28 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, mass,
         Dictionary containing statistical measures
     """
     
-    # Use only equilibrated portion
-    eq_start = int(len(x) * equilibration_fraction)
-    x_eq = x[eq_start:]
-    u_eq = v[eq_start:]
-    y_eq = x[eq_start:]
-    v_eq = v[eq_start:]
-    
     # Calculate statistics
-    x_mean = np.mean(x_eq)
-    x_var = np.var(x_eq)
-    y_mean = np.mean(y_eq)
-    y_var = np.var(y_eq)
-    u_mean = np.mean(u_eq)
-    u_var = np.var(u_eq)
-    v_mean = np.mean(v_eq)
-    v_var = np.var(v_eq)
+    x_mean = np.mean(x)
+    x_var = np.var(x)
+    y_mean = np.mean(y)
+    y_var = np.var(y)
+    u_mean = np.mean(u)
+    u_var = np.var(u)
+    v_mean = np.mean(v)
+    v_var = np.var(v)
     
     # Theoretical predictions from equipartition theorem
-    v_var_theory = kBT / mass  # <v^2> = kBT/m (Maxwell-Boltzmann)
+    v_var_theory = kT / m  # <v^2> = kBT/m (Maxwell-Boltzmann)
 
     # Diffusion coefficients
-    D_xx, D_yy, D_xy, msd_x, msd_y, t_single = compute_diffusion_coefficient(x, y, t, ntrajs, nsteps)
+    D_xx, D_yy, D_xy, msd_x, msd_y, t_single = compute_diffusion_coefficient(x, y, t, ntrajs, nsteps, eqfrac)
 
-    # Mobility
-    xea = ensemble_avg(x, ntrajs, nsteps)
-    yea = ensemble_avg(x, ntrajs, nsteps)
-    # TODO pick up here
-    
+    # Velocity correlations
+    C_uu, C_vv, C_uv, C_vu = compute_vacf(u, v, ntrajs, nsteps, max_lag)
+    C_uu_norm, C_vv_norm = C_uu / C_uu[0], C_vv / C_vv[0]
+    tau_x, tau_y = compute_correlation_times(C_uu_norm, C_vv_norm, dt)
+    D_KG_xx, D_KG_yy, D_KG_xy, D_KG_yx = compute_diffusion_from_vacf(C_uu, C_vv, C_uv, C_vu, dt)
+
     stats = {
         'x_mean': x_mean,
         'x_var': x_var,
@@ -393,7 +454,24 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, mass,
         'v_mean': v_mean,
         'v_var': v_var,
         'u_var_theory': v_var_theory,
-        'v_var_theory': v_var_theory
+        'v_var_theory': v_var_theory,
+        'D_xx': D_xx,
+        'D_yy': D_yy,
+        'D_xy': D_xy,
+        'msd_x': msd_x.tolist(),
+        'msd_y': msd_y.tolist(),
+        'C_uu': C_uu.tolist(),
+        'C_vv': C_vv.tolist(),
+        'C_uv': C_uv.tolist(),
+        'C_vu': C_vu.tolist(),
+        'C_uu_norm': C_uu_norm.tolist(),
+        'C_vv_norm': C_vv_norm.tolist(),
+        'tau_x': tau_x,
+        'tau_y': tau_y,
+        'D_KG_xx': D_KG_xx,
+        'D_KG_yy': D_KG_yy,
+        'D_KG_xy': D_KG_xy,
+        'D_KG_yx': D_KG_yx
     }
     
     return stats
@@ -422,7 +500,7 @@ def plot_results(t, x, y, u, v, stats):
     ax2.set_ylabel('Speed', fontsize=12)
     ax2.set_title('Speed Trajectory', fontsize=14, fontweight='bold')
     ax2.grid(True, alpha=0.3)
-    
+   
     # Phase space
     ax3 = fig.add_subplot(gs[1, 1])
     ax3.plot(x, u, 'purple', linewidth=0.5, alpha=0.3)
@@ -466,29 +544,6 @@ def plot_results(t, x, y, u, v, stats):
     
     return fig
 
-
-def print_statistics(stats):
-    """
-    Print simulation statistics and comparison with theory.
-    """
-    print("\n" + "="*60)
-    print("SIMULATION STATISTICS (Last 20% of trajectory)")
-    print("="*60)
-    print("\nPosition Statistics:")
-    print(f"  Mean:               {stats['x_mean']:10.6f}")
-    print(f"  Variance (sim):     {stats['x_var']:10.6f}")
-    
-    print("\nVelocity Statistics:")
-    print(f"  Mean:               {stats['u_mean']:10.6f}")
-    print(f"  Variance (sim):     {stats['u_var']:10.6f}")
-    print(f"  Variance (theory):  {stats['u_var_theory']:10.6f}")
-    print(f"  Relative error:     {100*abs(stats['u_var']-stats['u_var_theory'])/stats['u_var_theory']:10.2f}%")
-    
-    print("\nTheoretical predictions:")
-    print(f"  <v²> = k_B T / m     (Maxwell-Boltzmann)")
-    print("="*60 + "\n")
-
-
 # Main execution
 if __name__ == "__main__":
     # Make path to outdir
@@ -507,22 +562,24 @@ if __name__ == "__main__":
         np.random.seed(seed)
         args['seed'] = seed
 
-    print("\nRunning Langevin dynamics simulation...")
-    print(f"Parameters: m={nargs.m}, γ={nargs.gamma}, k_BT={nargs.kT},")
-    print(f"            gradp={nargs.gradp}, a={nargs.a}, L={nargs.L}, M={nargs.M},")
-    print(f"            x0={nargs.x0}, y0={nargs.y0}, u0={nargs.u0}, v0={nargs.v0}")
-    print(f"Time step: dt={nargs.dt}, Total steps: {nargs.nsteps}, Total trajectories: {nargs.ntrajs}")
-  
-    A, kT = nargs.A, nargs.kT
+    A, kT = args['A'], args['kT']
     args['alpha'] = A / kT          # barrier to thermal energy ratio
-    gradp, L = nargs.gradp, nargs.L
-    args['beta'] = gradp * L / kT   # Peclet number
-    args['eps'] = gradp * L / A     # Tilting parameter
-    M, gamma, m = nargs.M, nargs.gamma, nargs.m
+    Fpx, Fpy = args['Fpx'], args['Fpy']
+    L, M = args['L'], args['M']
+    args['beta_x'] = Fpx * L / kT   # Peclet number
+    args['eps_x'] = Fpx * L / A     # Tilting parameter
+    args['beta_y'] = Fpy * M / kT   # Peclet number
+    args['eps_y'] = Fpy * M / A     # Tilting parameter
+    gamma, m = args['gamma'], args['m']
     args['lambda'] = L / M          # Aspect ratio
     args['zeta'] = gamma**2 / (4*m*A/L**2)
     args['tau'] = kT / (gamma * L**2)
-   
+    
+    print("\nRunning Langevin dynamics simulation...")
+    print()
+    for (k, v) in args.items():
+        print(f"\t{k} = {v}")
+    print()
     
     with open(os.path.join(args['outdir'], 'params.json'), 'w') as json_file:
         json.dump(args, json_file, indent=4)
@@ -542,17 +599,31 @@ if __name__ == "__main__":
     df.to_csv(os.path.join(outdir, 'trajs.csv'), index=False)
     
     # Analyze statistics
-    stats = analyze_statistics(x, y, u, v, args['m'], args['kT'])
-    
-    # Print results
-    print_statistics(stats)
+    ntrajs = args['ntrajs']
+    nsteps = args['nsteps']
+    dt = args['dt']
+    print()
+    print('Analyzing statistics...')
+    stats = analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, args['max_lag'], args['eqfrac'])
+    for (k, val) in stats.items():
+        if type(val) == list:
+            continue
+        print(f"\t{k} = {val}")
+    print()
+
+    with open(os.path.join(args['outdir'], 'stats.json'), 'w') as json_file:
+        json.dump(stats, json_file, indent=4)
     
     # Create plots
-    fig = plot_results(t, x, y, u, v, stats)
-    plt.show()
+    do_plots, show_plots = args['do_plots'], args['show_plots']
+    if do_plots:
+        print('Plotting results...')
+        fig = plot_results(t, x, y, u, v, stats)
+        if show_plots:
+            plt.show()
+        fig.savefig(os.path.join(outdir, 'statistics.pdf'), dpi=300, bbox_inches='tight')
 
-    fig2 = plot_2d_trajectory_colored(x[:args['nsteps']-1], y[:args['nsteps']-1], potential_func=U)
-    plt.show()
-    
-    # Optional: Save figure
-    # fig.savefig('langevin_simulation.png', dpi=300, bbox_inches='tight')
+        fig2 = plot_2d_trajectory_colored(x[:nsteps-1], y[:nsteps-1], potential_func=U)
+        if show_plots:
+            plt.show()
+        fig.savefig(os.path.join(outdir, 'trajectory1.pdf'), dpi=300, bbox_inches='tight')
