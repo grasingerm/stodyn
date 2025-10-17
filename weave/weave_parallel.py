@@ -399,6 +399,44 @@ def compute_diffusion_from_vacf(C_uu, C_vv, C_uv, C_vu, dt):
     """
     return simpson(C_uu, dx=dt), simpson(C_vv, dx=dt), simpson(C_uv, dx=dt), simpson(C_vu, dx=dt)
 
+def compute_mean_velocity_robust(x, y, t, ntrajs, nsteps, eqfrac):
+    """
+    Compute mean velocity from linear fit of position vs time.
+    More robust to noise and equilibration issues.
+    """
+    # Reshape
+    x_trajs = x.reshape(ntrajs, nsteps)
+    y_trajs = y.reshape(ntrajs, nsteps)
+    t_single = t[:nsteps]
+    
+    # Use second half (equilibrated)
+    eq_start = int(np.round(nsteps*eqfrac))
+    
+    # Ensemble-averaged trajectory
+    x_mean_traj = np.mean(x_trajs, axis=0)
+    y_mean_traj = np.mean(y_trajs, axis=0)
+    
+    # Fit linear portion
+    coeffs_x = np.polyfit(t_single[eq_start:], x_mean_traj[eq_start:], 1)
+    coeffs_y = np.polyfit(t_single[eq_start:], y_mean_traj[eq_start:], 1)
+    
+    v_x_mean = coeffs_x[0]  # Slope
+    v_y_mean = coeffs_y[0]
+    
+    # Uncertainty from fit
+    x_fit = np.polyval(coeffs_x, t_single[eq_start:])
+    y_fit = np.polyval(coeffs_y, t_single[eq_start:])
+    
+    residual_x = np.std(x_mean_traj[eq_start:] - x_fit)
+    residual_y = np.std(y_mean_traj[eq_start:] - y_fit)
+    
+    return v_x_mean, v_y_mean, residual_x, residual_y
+
+def z_eq(z, ntrajs, nsteps, eqfrac):
+    eqsteps = int(np.round(eqfrac*nsteps))
+    z_trajs = z.reshape(ntrajs, nsteps)[:,eqsteps:]
+    return z_trajs.reshape(z_trajs.size)
+
 def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.5):
     """
     Calculate statistics from the trajectory and compare with theory.
@@ -421,16 +459,21 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.
     stats : dict
         Dictionary containing statistical measures
     """
+
+    x_eq = z_eq(x, ntrajs, nsteps, eqfrac)
+    y_eq = z_eq(y, ntrajs, nsteps, eqfrac)
+    u_eq = z_eq(u, ntrajs, nsteps, eqfrac)
+    v_eq = z_eq(v, ntrajs, nsteps, eqfrac)
     
     # Calculate statistics
-    x_mean = np.mean(x)
-    x_var = np.var(x)
-    y_mean = np.mean(y)
-    y_var = np.var(y)
-    u_mean = np.mean(u)
-    u_var = np.var(u)
-    v_mean = np.mean(v)
-    v_var = np.var(v)
+    x_mean = np.mean(x_eq)
+    x_var = np.var(x_eq)
+    y_mean = np.mean(y_eq)
+    y_var = np.var(y_eq)
+    u_mean = np.mean(u_eq)
+    u_var = np.var(u_eq)
+    v_mean = np.mean(v_eq)
+    v_var = np.var(v_eq)
     
     # Theoretical predictions from equipartition theorem
     v_var_theory = kT / m  # <v^2> = kBT/m (Maxwell-Boltzmann)
@@ -443,6 +486,10 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.
     C_uu_norm, C_vv_norm = C_uu / C_uu[0], C_vv / C_vv[0]
     tau_x, tau_y = compute_correlation_times(C_uu_norm, C_vv_norm, dt)
     D_KG_xx, D_KG_yy, D_KG_xy, D_KG_yx = compute_diffusion_from_vacf(C_uu, C_vv, C_uv, C_vu, dt)
+    
+    # Ensemble average distance travelled with time
+    xea = ensemble_avg(x, ntrajs, nsteps)
+    yea = ensemble_avg(y, ntrajs, nsteps)
 
     stats = {
         'x_mean': x_mean,
@@ -471,7 +518,10 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.
         'D_KG_xx': D_KG_xx,
         'D_KG_yy': D_KG_yy,
         'D_KG_xy': D_KG_xy,
-        'D_KG_yx': D_KG_yx
+        'D_KG_yx': D_KG_yx,
+        'xf': xea[-1],
+        'yf': xea[-1],
+        'tf': t[-1]
     }
     
     return stats
