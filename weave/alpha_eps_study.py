@@ -28,23 +28,23 @@ def parse_arguments():
     
     # Study parameters
     parser.add_argument('--alpha_min', type=float, default=0.1,
-                       help='Minimum α = A/kBT')
-    parser.add_argument('--alpha_max', type=float, default=30.0,
-                       help='Maximum α = A/kBT')
+                       help='Minimum α = Aa/kBT')
+    parser.add_argument('--alpha_max', type=float, default=20.0,
+                       help='Maximum α = Aa/kBT')
     parser.add_argument('--n_alpha', type=int, default=15,
                        help='Number of α values')
     
-    parser.add_argument('--beta_min', type=float, default=0.1,
-                       help='Minimum β = F·L/kBT')
-    parser.add_argument('--beta_max', type=float, default=30.0,
-                       help='Maximum β = F·L/kBT')
-    parser.add_argument('--n_beta', type=int, default=15,
-                       help='Number of β values')
+    parser.add_argument('--eps_min', type=float, default=0.05,
+                   help='Minimum ε = FL/Aa')
+    parser.add_argument('--eps_max', type=float, default=5.0,
+                   help='Maximum ε = FL/Aa')
+    parser.add_argument('--n_eps', type=int, default=15,
+                   help='Number of ε values')
     
     # Fixed physical parameters
     parser.add_argument('--A', type=float, default=4.0,
                        help='Barrier amplitude')
-    parser.add_argument('--a', type=float, default=1.0,
+    parser.add_argument('--a', type=float, default=4.0,
                        help='Shape factor')
     parser.add_argument('--L', type=float, default=1.0,
                        help='Length scale in x-y direction')
@@ -68,7 +68,7 @@ def parse_arguments():
                        help='Number of cores for parallelization')
     
     # Directory management
-    parser.add_argument('--study_dir', type=str, default='alpha_beta_study',
+    parser.add_argument('--study_dir', type=str, default='alpha_eps_study',
                        help='Base directory for study results')
     parser.add_argument('--weave_script', type=str, default='./weave_parallel.py',
                        help='Path to weave.py script')
@@ -85,43 +85,39 @@ def parse_arguments():
     
     return parser.parse_args()
 
-
 def generate_parameter_grid(args):
     """
-    Generate (α, β) parameter grid.
-    
-    Returns:
-    --------
-    param_list : list of dicts
-        Each dict contains simulation parameters
+    Generate (α, ε) parameter grid with fixed shape factor.
     """
-    # Generate logarithmic grids
     alpha_vals = np.logspace(np.log10(args.alpha_min), 
                              np.log10(args.alpha_max), 
                              args.n_alpha)
-    beta_vals = np.logspace(np.log10(args.beta_min), 
-                           np.log10(args.beta_max), 
-                           args.n_beta)
+    eps_vals = np.logspace(np.log10(args.eps_min), 
+                           np.log10(args.eps_max), 
+                           args.n_eps)
     
     param_list = []
     
     for alpha in alpha_vals:
-        for beta in beta_vals:
-            # Convert dimensionless to physical parameters
-            # α = A/kBT  →  kBT = A/α
-            kT = args.A / alpha
+        # α = Aa/kBT  →  kBT = Aa/α
+        kT = args.A * args.a / alpha
+        
+        for eps in eps_vals:
+            # ε = F·L/Aa  →  F = ε·Aa/L
+            Fpx = eps * args.A * args.a / args.L
             
-            # β = F·L/kBT  →  F = β·kBT/L
-            gradp = beta * kT / args.L
+            # Compute β for reference
+            beta = Fpx * args.L / kT  # = ε·α
             
-            # Create parameter dict
             params = {
                 'alpha': alpha,
+                'eps': eps,
                 'beta': beta,
                 'kT': kT,
-                'Fpx': gradp,
+                'Fpx': Fpx,
+                'Fpy': 0.0,
                 'A': args.A,
-                'a': args.a,  # Note: 'a' in weave.py is the shape parameter
+                'a': args.a,  # FIXED shape factor, NOT alpha!
                 'L': args.L,
                 'M': args.M,
                 'gamma': args.gamma,
@@ -136,18 +132,16 @@ def generate_parameter_grid(args):
             
             param_list.append(params)
     
-    return param_list, alpha_vals, beta_vals
+    return param_list, alpha_vals, eps_vals
 
-
-def get_output_dir(study_dir, alpha, beta):
+def get_output_dir(study_dir, alpha, eps):
     """
     Generate output directory name for given parameters.
     
-    Format: study_dir/alpha-{alpha:.4f}_beta-{beta:.4f}
+    Format: study_dir/alpha_{alpha:.4f}_eps_{eps:.4f}
     """
-    dirname = f"alpha-{alpha:.4f}_beta-{beta:.4f}"
+    dirname = f"alpha_{alpha:.4f}_eps_{eps:.4f}"
     return Path(study_dir) / dirname
-
 
 def run_simulation(params, outdir, weave_script, dry_run=False):
     """
@@ -203,35 +197,35 @@ def run_simulation(params, outdir, weave_script, dry_run=False):
         return False
 
 
-def load_results(study_dir, alpha_vals, beta_vals):
+def load_results(study_dir, alpha_vals, eps_vals):
     """
     Load all stats.json files from study directory.
     
     Returns:
     --------
     results : dict
-        Nested dict: results[alpha][beta] = stats_dict
+        Nested dict: results[alpha][eps] = stats_dict
     """
     results = {}
     
     for alpha in alpha_vals:
         results[alpha] = {}
-        for beta in beta_vals:
-            outdir = get_output_dir(study_dir, alpha, beta)
+        for eps in eps_vals:
+            outdir = get_output_dir(study_dir, alpha, eps)
             stats_file = outdir / 'stats.json'
             
             if stats_file.exists():
                 with open(stats_file, 'r') as f:
                     stats = json.load(f)
-                results[alpha][beta] = stats
+                results[alpha][eps] = stats
             else:
-                results[alpha][beta] = None
-                print(f"Warning: No results for α={alpha:.4f}, β={beta:.4f}")
+                results[alpha][eps] = None
+                print(f"Warning: No results for α={alpha:.4f}, eps={eps:.4f}")
     
     return results
 
 
-def extract_mobility_grid(results, alpha_vals, beta_vals, L, gamma, A):
+def extract_mobility_grid(results, alpha_vals, eps_vals, L, gamma, A):
     """
     Extract dimensionless mobility from results.
     
@@ -241,20 +235,20 @@ def extract_mobility_grid(results, alpha_vals, beta_vals, L, gamma, A):
         Dimensionless mobility grids
     """
     n_alpha = len(alpha_vals)
-    n_beta = len(beta_vals)
+    n_eps = len(eps_vals)
     
-    mu_xx_grid = np.full((n_alpha, n_beta), np.nan)
-    mu_xy_grid = np.full((n_alpha, n_beta), np.nan)
-    D_xx_grid = np.full((n_alpha, n_beta), np.nan)
-    D_xy_grid = np.full((n_alpha, n_beta), np.nan)
-    D_yy_grid = np.full((n_alpha, n_beta), np.nan)
+    mu_xx_grid = np.full((n_alpha, n_eps), np.nan)
+    mu_xy_grid = np.full((n_alpha, n_eps), np.nan)
+    D_xx_grid = np.full((n_alpha, n_eps), np.nan)
+    D_xy_grid = np.full((n_alpha, n_eps), np.nan)
+    D_yy_grid = np.full((n_alpha, n_eps), np.nan)
     
     for i, alpha in enumerate(alpha_vals):
-        for j, beta in enumerate(beta_vals):
-            if results[alpha][beta] is not None:
-                stats = results[alpha][beta]
+        for j, eps in enumerate(eps_vals):
+            if results[alpha][eps] is not None:
+                stats = results[alpha][eps]
                 kT = A / alpha
-                Fpx = beta * kT / L
+                Fpx = eps * kT / L
                 
                 # Extract mobility (assume stored in stats)
                 if 'D_xx' in stats and 'D_xy' in stats:
@@ -269,22 +263,22 @@ def extract_mobility_grid(results, alpha_vals, beta_vals, L, gamma, A):
     return mu_xx_grid, mu_xy_grid, D_xx_grid, D_xy_grid, D_yy_grid
 
 
-def plot_mobility_phase_diagram(alpha_vals, beta_vals, mu_xx_grid, study_dir):
+def plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     """
     Create main phase diagram plot.
     """
     fig, ax = plt.subplots(figsize=(10, 8))
     
     # Create meshgrid
-    Beta, Alpha = np.meshgrid(beta_vals, alpha_vals)
+    Eps, Alpha = np.meshgrid(eps_vals, alpha_vals)
     
     # Plot heatmap
     levels = 20
-    contour = ax.contourf(Beta, Alpha, mu_xx_grid, 
+    contour = ax.contourf(Eps, Alpha, mu_xx_grid, 
                           levels=levels, cmap='viridis')
     
     # Contour lines
-    contour_lines = ax.contour(Beta, Alpha, mu_xx_grid, 
+    contour_lines = ax.contour(Eps, Alpha, mu_xx_grid, 
                                levels=10, colors='white', 
                                linewidths=0.5, alpha=0.5)
     ax.clabel(contour_lines, inline=True, fontsize=8, fmt='%.2f')
@@ -293,19 +287,19 @@ def plot_mobility_phase_diagram(alpha_vals, beta_vals, mu_xx_grid, study_dir):
     if not np.all(np.isnan(mu_xx_grid)):
         max_idx = np.unravel_index(np.nanargmax(mu_xx_grid), mu_xx_grid.shape)
         alpha_opt = alpha_vals[max_idx[0]]
-        beta_opt = beta_vals[max_idx[1]]
+        eps_opt = eps_vals[max_idx[1]]
         mu_max = mu_xx_grid[max_idx]
         
-        ax.plot(beta_opt, alpha_opt, 'r*', markersize=30, 
+        ax.plot(eps_opt, alpha_opt, 'r*', markersize=30, 
                 markeredgecolor='white', markeredgewidth=2,
-                label=f'Max: α={alpha_opt:.2f}, β={beta_opt:.2f}, μ̃={mu_max:.3f}')
+                label=f'Max: α={alpha_opt:.2f}, ε={eps_opt:.2f}, μ̃={mu_max:.3f}')
     
     # Formatting
     ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.set_xlabel('$β = F_x L / (k_B T)$ [driving strength]', fontsize=14)
-    ax.set_ylabel('$α = A / (k_B T)$ [inverse temperature]', fontsize=14)
-    ax.set_title('Dimensionless Mobility $\\tilde{μ}_{xx}(α, β)$', 
+    ax.set_xlabel('$ε = F L / (A a)$ [driving strength]', fontsize=14)
+    ax.set_ylabel('$α = A a / (k_B T)$ [inverse temperature]', fontsize=14)
+    ax.set_title('Dimensionless Mobility $\\tilde{μ}_{xx}(α, ε)$', 
                  fontsize=16, fontweight='bold')
     
     # Colorbar
@@ -327,7 +321,7 @@ def plot_mobility_phase_diagram(alpha_vals, beta_vals, mu_xx_grid, study_dir):
     return fig
 
 
-def plot_mobility_slices(alpha_vals, beta_vals, mu_xx_grid, study_dir):
+def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     """
     Plot 1D slices through parameter space.
     """
@@ -338,23 +332,23 @@ def plot_mobility_slices(alpha_vals, beta_vals, mu_xx_grid, study_dir):
     for alpha_sample in alpha_samples:
         idx = np.argmin(np.abs(alpha_vals - alpha_sample))
         alpha_actual = alpha_vals[idx]
-        axes[0].plot(beta_vals, mu_xx_grid[idx, :], 
+        axes[0].plot(eps_vals, mu_xx_grid[idx, :], 
                     marker='o', label=f'α = {alpha_actual:.2f}')
     
     axes[0].set_xscale('log')
-    axes[0].set_xlabel('$β$ (driving strength)', fontsize=12)
+    axes[0].set_xlabel('$ε$ (driving strength)', fontsize=12)
     axes[0].set_ylabel('$\\tilde{μ}_{xx}$', fontsize=12)
     axes[0].set_title('Mobility vs. Driving\n(fixed temperature)', fontweight='bold')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
     # Right: μ vs α for fixed β values
-    beta_samples = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
-    for beta_sample in beta_samples:
-        idx = np.argmin(np.abs(beta_vals - beta_sample))
-        beta_actual = beta_vals[idx]
+    eps_samples = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    for eps_sample in eps_samples:
+        idx = np.argmin(np.abs(eps_vals - eps_sample))
+        eps_actual = eps_vals[idx]
         axes[1].plot(alpha_vals, mu_xx_grid[:, idx], 
-                    marker='o', label=f'β = {beta_actual:.2f}')
+                    marker='o', label=f'ε = {eps_actual:.2f}')
     
     axes[1].set_xscale('log')
     axes[1].set_xlabel('$α$ (inverse temperature)', fontsize=12)
@@ -375,7 +369,7 @@ def plot_mobility_slices(alpha_vals, beta_vals, mu_xx_grid, study_dir):
     return fig
 
 
-def analyze_optimal_point(alpha_vals, beta_vals, mu_xx_grid):
+def analyze_optimal_point(alpha_vals, eps_vals, mu_xx_grid):
     """
     Find and characterize the optimal point.
     """
@@ -386,7 +380,7 @@ def analyze_optimal_point(alpha_vals, beta_vals, mu_xx_grid):
     # Find maximum
     max_idx = np.unravel_index(np.nanargmax(mu_xx_grid), mu_xx_grid.shape)
     alpha_opt = alpha_vals[max_idx[0]]
-    beta_opt = beta_vals[max_idx[1]]
+    eps_opt = eps_vals[max_idx[1]]
     mu_max = mu_xx_grid[max_idx]
     
     print("\n" + "="*60)
@@ -394,14 +388,14 @@ def analyze_optimal_point(alpha_vals, beta_vals, mu_xx_grid):
     print("="*60)
     print(f"\nOptimal parameters:")
     print(f"  α* = {alpha_opt:.3f}  (A/kBT)")
-    print(f"  β* = {beta_opt:.3f}  (F·L/kBT)")
+    print(f"  β* = {eps_opt:.3f}  (F·L/kBT)")
     print(f"  μ̃_max = {mu_max:.4f}")
     print(f"\nPhysical interpretation:")
     print(f"  Optimal kBT/A = {1/alpha_opt:.3f}")
-    print(f"  Optimal F·L/kBT = {beta_opt:.3f}")
+    print(f"  Optimal F·L/kBT = {eps_opt:.3f}")
     print("="*60 + "\n")
     
-    return {'alpha_opt': alpha_opt, 'beta_opt': beta_opt, 'mu_max': mu_max}
+    return {'alpha_opt': alpha_opt, 'eps_opt': eps_opt, 'mu_max': mu_max}
 
 
 def main():
@@ -414,11 +408,11 @@ def main():
     print(f"\nStudy directory: {args.study_dir}")
     print(f"Parameter ranges:")
     print(f"  α: [{args.alpha_min}, {args.alpha_max}] ({args.n_alpha} points)")
-    print(f"  β: [{args.beta_min}, {args.beta_max}] ({args.n_beta} points)")
-    print(f"Total simulations: {args.n_alpha * args.n_beta}")
+    print(f"  β: [{args.eps_min}, {args.eps_max}] ({args.n_eps} points)")
+    print(f"Total simulations: {args.n_alpha * args.n_eps}")
     
     # Generate parameter grid
-    param_list, alpha_vals, beta_vals = generate_parameter_grid(args)
+    param_list, alpha_vals, eps_vals = generate_parameter_grid(args)
     
     if not args.plot_only:
         # Run simulations
@@ -434,11 +428,11 @@ def main():
         
         for i, params in enumerate(param_list):
             alpha = params['alpha']
-            beta = params['beta']
-            outdir = get_output_dir(args.study_dir, alpha, beta)
+            eps = params['eps']
+            outdir = get_output_dir(args.study_dir, alpha, eps)
             stats_file = outdir / 'stats.json'
             
-            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, β={beta:.4f}")
+            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, ε={eps:.4f}")
             
             # Check if already exists
             if args.skip_existing and stats_file.exists():
@@ -470,20 +464,20 @@ def main():
     print("ANALYZING RESULTS")
     print(f"{'='*60}\n")
     
-    results = load_results(args.study_dir, alpha_vals, beta_vals)
-    mu_xx_grid, mu_yx_grid, D_xx_grid, D_xy_grid, D_yy_grid = extract_mobility_grid(results, alpha_vals, beta_vals, args.L, args.gamma, args.A)
+    results = load_results(args.study_dir, alpha_vals, eps_vals)
+    mu_xx_grid, mu_yx_grid, D_xx_grid, D_xy_grid, D_yy_grid = extract_mobility_grid(results, alpha_vals, eps_vals, args.L, args.gamma, args.A)
     
     # Generate plots
-    plot_mobility_phase_diagram(alpha_vals, beta_vals, mu_xx_grid, args.study_dir)
-    plot_mobility_slices(alpha_vals, beta_vals, mu_xx_grid, args.study_dir)
+    plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, args.study_dir)
+    plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, args.study_dir)
     
     # Analyze optimal point
-    optimal = analyze_optimal_point(alpha_vals, beta_vals, mu_xx_grid)
+    optimal = analyze_optimal_point(alpha_vals, eps_vals, mu_xx_grid)
     
     # Save summary
     summary = {
         'alpha_vals': alpha_vals.tolist(),
-        'beta_vals': beta_vals.tolist(),
+        'eps_vals': eps_vals.tolist(),
         'mu_xx_grid': mu_xx_grid.tolist(),
         'mu_yx_grid': mu_yx_grid.tolist(),
         'optimal': optimal,

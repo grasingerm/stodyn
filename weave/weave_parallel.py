@@ -31,9 +31,9 @@ parser.add_argument('--x0', type=float, default=0.0, help='initial x position')
 parser.add_argument('--y0', type=float, default=0.0, help='initial y position')
 parser.add_argument('--u0', type=float, default=0.0, help='initial x velocity')
 parser.add_argument('--v0', type=float, default=0.0, help='initial y velocity')
-parser.add_argument('--outfreq', type=int, default=1, help='number of iterations per diagnostic information')
+parser.add_argument('--outfreq', type=int, default=1, help='number of iterations per sample')
 parser.add_argument('--eqfrac', type=float, default=0.1, help='fraction of trajectories assumed to be equilibrated')
-parser.add_argument('--max-lag', type=int, help='maximum amount of lag in steps for computing velocity autocorrelations')
+parser.add_argument('--max_lag', type=int, default=10, help='maximum amount of lag in steps for computing velocity autocorrelations')
 parser.add_argument('--outdir', type=str, default="temp", help='output directory')
 parser.add_argument('--do_plots', default=False, action="store_true", help='create plots')
 parser.add_argument('--show_plots', default=False, action="store_true", help='show plots')
@@ -612,17 +612,17 @@ if __name__ == "__main__":
         np.random.seed(seed)
         args['seed'] = seed
 
-    A, kT = args['A'], args['kT']
-    args['alpha'] = A / kT          # barrier to thermal energy ratio
+    A, a, kT = args['A'], args['a'], args['kT']
+    args['alpha'] = A*a / kT          # barrier to thermal energy ratio
     Fpx, Fpy = args['Fpx'], args['Fpy']
     L, M = args['L'], args['M']
     args['beta_x'] = Fpx * L / kT   # Peclet number
-    args['eps_x'] = Fpx * L / A     # Tilting parameter
+    args['eps_x'] = Fpx * L / (A*a) # Tilting parameter
     args['beta_y'] = Fpy * M / kT   # Peclet number
-    args['eps_y'] = Fpy * M / A     # Tilting parameter
+    args['eps_y'] = Fpy * M / (A*a) # Tilting parameter
     gamma, m = args['gamma'], args['m']
     args['lambda'] = L / M          # Aspect ratio
-    args['zeta'] = gamma**2 / (4*m*A/L**2)
+    args['zeta'] = gamma**2 / (4*m*A*a/L**2)
     args['tau'] = kT / (gamma * L**2)
     
     print("\nRunning Langevin dynamics simulation...")
@@ -651,10 +651,11 @@ if __name__ == "__main__":
     # Analyze statistics
     ntrajs = args['ntrajs']
     nsteps = args['nsteps']
+    nsamples = nsteps // args['outfreq']
     dt = args['dt']
     print()
     print('Analyzing statistics...')
-    stats = analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, args['max_lag'], args['eqfrac'])
+    stats = analyze_statistics(x, y, u, v, ntrajs, nsamples, dt, m, kT, args['max_lag'], args['eqfrac'])
     for (k, val) in stats.items():
         if type(val) == list:
             continue
@@ -673,7 +674,7 @@ if __name__ == "__main__":
             plt.show()
         fig.savefig(os.path.join(outdir, 'statistics.pdf'), dpi=300, bbox_inches='tight')
 
-        fig2 = plot_2d_trajectory_colored(x[:nsteps-1], y[:nsteps-1], potential_func=U)
+        fig2 = plot_2d_trajectory_colored(x[:nsamples-1], y[:nsamples-1], potential_func=U)
         if show_plots:
             plt.show()
         fig.savefig(os.path.join(outdir, 'trajectory1.pdf'), dpi=300, bbox_inches='tight')
