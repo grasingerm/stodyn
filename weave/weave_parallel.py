@@ -613,7 +613,7 @@ if __name__ == "__main__":
         args['seed'] = seed
 
     A, a, kT = args['A'], args['a'], args['kT']
-    args['alpha'] = A*a / kT          # barrier to thermal energy ratio
+    args['alpha'] = A / kT          # barrier to thermal energy ratio
     Fpx, Fpy = args['Fpx'], args['Fpy']
     L, M = args['L'], args['M']
     args['beta_x'] = Fpx * L / kT   # Peclet number

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Driver script for α-β parameter study of weave potential.
+Driver script for α-ε parameter study of weave potential.
 
 This script:
-1. Generates a grid of (α, β) parameters
+1. Generates a grid of (α, ε) parameters
 2. Runs weave.py for each parameter set via command line
 3. Stores results in organized directories
 4. Analyzes and plots results from stats.json files
@@ -22,15 +22,15 @@ import time
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Run α-β parameter study for weave simulations', 
+        description='Run α-ε parameter study for weave simulations', 
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
     # Study parameters
     parser.add_argument('--alpha_min', type=float, default=0.1,
-                       help='Minimum α = Aa/kBT')
+                       help='Minimum α = A/kBT')
     parser.add_argument('--alpha_max', type=float, default=20.0,
-                       help='Maximum α = Aa/kBT')
+                       help='Maximum α = A/kBT')
     parser.add_argument('--n_alpha', type=int, default=15,
                        help='Number of α values')
     
@@ -99,8 +99,8 @@ def generate_parameter_grid(args):
     param_list = []
     
     for alpha in alpha_vals:
-        # α = Aa/kBT  →  kBT = Aa/α
-        kT = args.A * args.a / alpha
+        # α = A/kBT  →  kBT = A/α
+        kT = args.A / alpha
         
         for eps in eps_vals:
             # ε = F·L/Aa  →  F = ε·Aa/L
@@ -298,7 +298,7 @@ def plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlabel('$ε = F L / (A a)$ [driving strength]', fontsize=14)
-    ax.set_ylabel('$α = A a / (k_B T)$ [inverse temperature]', fontsize=14)
+    ax.set_ylabel('$α = A / (k_B T)$ [inverse temperature]', fontsize=14)
     ax.set_title('Dimensionless Mobility $\\tilde{μ}_{xx}(α, ε)$', 
                  fontsize=16, fontweight='bold')
     
@@ -320,7 +320,63 @@ def plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     
     return fig
 
+def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_yy_grid, study_dir):
+    """
+    Create main phase diagram plot.
+    """
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Create meshgrid
+    Eps, Alpha = np.meshgrid(eps_vals, alpha_vals)
 
+    for (grid, label) in zip([D_xx_grid, D_xy_grid, D_yy_grid],['D_{xx}', 'D_{xy}', 'D_{yy}']):
+        
+        # Plot heatmap
+        levels = 20
+        contour = ax.contourf(Eps, Alpha, grid, 
+                              levels=levels, cmap='viridis')
+        
+        # Contour lines
+        contour_lines = ax.contour(Eps, Alpha, grid, 
+                                   levels=10, colors='white', 
+                                   linewidths=0.5, alpha=0.5)
+        ax.clabel(contour_lines, inline=True, fontsize=8, fmt='%.2f')
+        
+        # Find and mark maximum
+        if not np.all(np.isnan(grid)):
+            max_idx = np.unravel_index(np.nanargmax(grid), grid.shape)
+            alpha_opt = alpha_vals[max_idx[0]]
+            eps_opt = eps_vals[max_idx[1]]
+            val_max = grid[max_idx]
+            
+            ax.plot(eps_opt, alpha_opt, 'r*', markersize=30, 
+                    markeredgecolor='white', markeredgewidth=2,
+                    label=f'Max: α={alpha_opt:.2f}, ε={eps_opt:.2f},' + '$\\tilde{' + label + '}$' + f'={val_max:.3f}')
+        
+        # Formatting
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('$ε = F L / (A a)$ [driving strength]', fontsize=14)
+        ax.set_ylabel('$α = A / (k_B T)$ [inverse temperature]', fontsize=14)
+        ax.set_title('Diffusion coefficient, $' + label + '(α, ε)$', 
+                     fontsize=16, fontweight='bold')
+        
+        # Colorbar
+        cbar = plt.colorbar(contour, ax=ax, label='$'+label+'$')
+        
+        # Legend
+        ax.legend(fontsize=12, loc='upper right')
+        ax.grid(True, alpha=0.3, which='both')
+        
+        plt.tight_layout()
+        
+        # Save
+        study_path = Path(study_dir)
+        study_path.mkdir(parents=True, exist_ok=True)
+        output_path = study_path / (label + '_phase_diagram.pdf')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        print(f"\nSaved: {output_path}")
+    
 def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     """
     Plot 1D slices through parameter space.
@@ -328,7 +384,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
     # Left: μ vs β for fixed α values
-    alpha_samples = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    alpha_samples = np.linspace(min(alpha_vals), max(alpha_vals))
     for alpha_sample in alpha_samples:
         idx = np.argmin(np.abs(alpha_vals - alpha_sample))
         alpha_actual = alpha_vals[idx]
@@ -343,7 +399,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     axes[0].grid(True, alpha=0.3)
     
     # Right: μ vs α for fixed β values
-    eps_samples = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
+    eps_samples = np.linspace(min(eps_vals), max(eps_vals))
     for eps_sample in eps_samples:
         idx = np.argmin(np.abs(eps_vals - eps_sample))
         eps_actual = eps_vals[idx]
@@ -469,6 +525,7 @@ def main():
     
     # Generate plots
     plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, args.study_dir)
+    plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_yy_grid, args.study_dir)
     plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, args.study_dir)
     
     # Analyze optimal point
@@ -480,6 +537,9 @@ def main():
         'eps_vals': eps_vals.tolist(),
         'mu_xx_grid': mu_xx_grid.tolist(),
         'mu_yx_grid': mu_yx_grid.tolist(),
+        'D_xx_grid': D_xx_grid.tolist(),
+        'D_xy_grid': D_xy_grid.tolist(),
+        'D_yy_grid': D_yy_grid.tolist(),
         'optimal': optimal,
         'parameters': vars(args)
     }
