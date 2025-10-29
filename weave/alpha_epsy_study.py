@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Driver script for α-ε parameter study of weave potential.
+Driver script for α-εy parameter study of weave potential.
 
 This script:
-1. Generates a grid of (α, ε) parameters
+1. Generates a grid of (α, εy | εx) parameters
 2. Runs weave.py for each parameter set via command line
 3. Stores results in organized directories
 4. Analyzes and plots results from stats.json files
@@ -17,7 +17,8 @@ import os
 import argparse
 from pathlib import Path
 import time
-
+import copy
+import pprint
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -34,14 +35,16 @@ def parse_arguments():
     parser.add_argument('--n_alpha', type=int, default=15,
                        help='Number of α values')
     
-    parser.add_argument('--eps_min', type=float, default=0.05,
-                   help='Minimum ε = FL/Aa')
-    parser.add_argument('--eps_max', type=float, default=5.0,
-                   help='Maximum ε = FL/Aa')
-    parser.add_argument('--n_eps', type=int, default=15,
-                   help='Number of ε values')
+    parser.add_argument('--epsy_min', type=float, default=1e-2,
+                   help='Minimum εy = FyM/Aa')
+    parser.add_argument('--epsy_max', type=float, default=2.0,
+                   help='Maximum εy = FyM/Aa')
+    parser.add_argument('--n_epsy', type=int, default=15,
+                   help='Number of εy values')
     
     # Fixed physical parameters
+    parser.add_argument('--epsx', type=float, default=1.0,
+                       help='εx = FxL/Aa')
     parser.add_argument('--A', type=float, default=4.0,
                        help='Barrier amplitude')
     parser.add_argument('--a', type=float, default=4.0,
@@ -87,27 +90,48 @@ def parse_arguments():
 
 def generate_parameter_grid(args):
     """
-    Generate (α, ε) parameter grid with fixed shape factor.
+    Generate (α, εy) parameter grid with fixed shape factor.
     """
+    Fpx = args.epsx * args.A * args.a / args.L
     alpha_vals = np.logspace(np.log10(args.alpha_min), 
                              np.log10(args.alpha_max), 
                              args.n_alpha)
-    eps_vals = np.logspace(np.log10(args.eps_min), 
-                           np.log10(args.eps_max), 
-                           args.n_eps)
+    eps_vals = np.logspace(np.log10(args.epsy_min), 
+                           np.log10(args.epsy_max), 
+                           args.n_epsy)
     
     param_list = []
-    
     for alpha in alpha_vals:
         # α = A/kBT  →  kBT = A/α
         kT = args.A / alpha
-        
+        # Compute β for reference
+        beta = Fpx * args.L / kT  # = ε·α
+    
+        # Add reference simulation
+        param_list.append({
+                'alpha': alpha,
+                'eps': 0,
+                'beta': beta,
+                'kT': kT,
+                'Fpx': Fpx,
+                'Fpy': 0,
+                'A': args.A,
+                'a': args.a,
+                'L': args.L,
+                'M': args.M,
+                'gamma': args.gamma,
+                'm': args.m,
+                'dt': args.dt,
+                'nsteps': args.nsteps,
+                'ntrajs': args.ntrajs,
+                'outfreq': args.outfreq,
+                'ncores': args.ncores if args.ncores else '',
+                'do_subplots': args.do_subplots
+            })
+
         for eps in eps_vals:
-            # ε = F·L/Aa  →  F = ε·Aa/L
-            Fpx = eps * args.A * args.a / args.L
-            
-            # Compute β for reference
-            beta = Fpx * args.L / kT  # = ε·α
+            # ε = F·M/Aa  →  F = ε·Aa/M
+            Fpy = eps * args.A * args.a / args.M
             
             params = {
                 'alpha': alpha,
@@ -115,9 +139,9 @@ def generate_parameter_grid(args):
                 'beta': beta,
                 'kT': kT,
                 'Fpx': Fpx,
-                'Fpy': 0.0,
+                'Fpy': Fpy,
                 'A': args.A,
-                'a': args.a,  # FIXED shape factor, NOT alpha!
+                'a': args.a,
                 'L': args.L,
                 'M': args.M,
                 'gamma': args.gamma,
@@ -159,6 +183,7 @@ def run_simulation(params, outdir, weave_script, dry_run=False):
         '--gamma', str(params['gamma']),
         '--kT', str(params['kT']),
         '--Fpx', str(params['Fpx']),
+        '--Fpy', str(params['Fpy']),
         '--A', str(params['A']),
         '--a', str(params['a']),
         '--L', str(params['L']),
@@ -207,14 +232,16 @@ def load_results(study_dir, alpha_vals, eps_vals):
         Nested dict: results[alpha][eps] = stats_dict
     """
     results = {}
+
     
     for alpha in alpha_vals:
         results[alpha] = {}
-        for eps in eps_vals:
+        for eps in (eps_vals.tolist() + [0]):
             outdir = get_output_dir(study_dir, alpha, eps)
             stats_file = outdir / 'stats.json'
             
             if stats_file.exists():
+                print(f'    loading alpha = {alpha}, eps = {eps}')
                 with open(stats_file, 'r') as f:
                     stats = json.load(f)
                 results[alpha][eps] = stats
@@ -225,7 +252,7 @@ def load_results(study_dir, alpha_vals, eps_vals):
     return results
 
 
-def extract_mobility_grid(results, alpha_vals, eps_vals, L, gamma, A):
+def extract_mobility_grid(results, alpha_vals, eps_vals, epsx, L, M, gamma, A):
     """
     Extract dimensionless mobility from results.
     
@@ -242,13 +269,15 @@ def extract_mobility_grid(results, alpha_vals, eps_vals, L, gamma, A):
     D_xx_grid = np.full((n_alpha, n_eps), np.nan)
     D_xy_grid = np.full((n_alpha, n_eps), np.nan)
     D_yy_grid = np.full((n_alpha, n_eps), np.nan)
-    
+
     for i, alpha in enumerate(alpha_vals):
+        ref_stats = results[alpha][0.0]
         for j, eps in enumerate(eps_vals):
             if results[alpha][eps] is not None:
                 stats = results[alpha][eps]
                 kT = A / alpha
-                Fpx = eps * kT / L
+                Fpx = epsx * kT / L
+                Fpy = eps * kT / M
                 
                 # Extract mobility (assume stored in stats)
                 if 'D_xx' in stats and 'D_xy' in stats:
@@ -257,8 +286,8 @@ def extract_mobility_grid(results, alpha_vals, eps_vals, L, gamma, A):
                     D_yy_grid[i, j] = stats['D_yy'] * gamma / kT
 
                 if 'xf' in stats and 'yf' in stats and 'tf' in stats:
-                    mu_xx_grid[i, j] = stats['xf'] / (stats['tf'] * Fpx) * gamma
-                    mu_xy_grid[i, j] = stats['yf'] / (stats['tf'] * Fpx) * gamma
+                    mu_xx_grid[i, j] = (stats['xf'] - ref_stats['xf']) / (stats['tf'] * Fpx) * gamma
+                    mu_xy_grid[i, j] = (stats['yf'] - ref_stats['yf']) / (stats['tf'] * Fpx) * gamma
     
     return mu_xx_grid, mu_xy_grid, D_xx_grid, D_xy_grid, D_yy_grid
 
@@ -297,13 +326,13 @@ def plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     # Formatting
     ax.set_xscale('log')
     ax.set_yscale('log')
-    ax.set_xlabel('$ε = F L / (A a)$ [driving strength]', fontsize=14)
+    ax.set_xlabel('$ε_y = F_y L / (A a)$ [driving strength]', fontsize=14)
     ax.set_ylabel('$α = A / (k_B T)$ [inverse temperature]', fontsize=14)
-    ax.set_title('Dimensionless Mobility $\\tilde{μ}_{xx}(α, ε)$', 
+    ax.set_title('Dimensionless Mobility Change $\\tilde{μ}_{xy}$', 
                  fontsize=16, fontweight='bold')
     
     # Colorbar
-    cbar = plt.colorbar(contour, ax=ax, label='$\\tilde{μ}_{xx} = μ_{xx} · γ$')
+    cbar = plt.colorbar(contour, ax=ax, label='$\\tilde{μ}_{xy}$')
     
     # Legend
     ax.legend(fontsize=12, loc='upper right')
@@ -356,7 +385,7 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
         # Formatting
         ax.set_xscale('log')
         ax.set_yscale('log')
-        ax.set_xlabel('$ε = F L / (A a)$ [driving strength]', fontsize=14)
+        ax.set_xlabel('$ε_y = F_y M / (A a)$ [driving strength]', fontsize=14)
         ax.set_ylabel('$α = A / (k_B T)$ [inverse temperature]', fontsize=14)
         ax.set_title('Diffusion coefficient, $' + label + '(α, ε)$', 
                      fontsize=16, fontweight='bold')
@@ -392,8 +421,8 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
                     marker='o', label=f'α = {alpha_actual:.2f}')
     
     axes[0].set_xscale('log')
-    axes[0].set_xlabel('$ε$ (driving strength)', fontsize=12)
-    axes[0].set_ylabel('$\\tilde{μ}_{xx}$', fontsize=12)
+    axes[0].set_xlabel('$ε_y$ (driving strength)', fontsize=12)
+    axes[0].set_ylabel('$\\tilde{μ}_{xy}$', fontsize=12)
     axes[0].set_title('Mobility vs. Driving\n(fixed temperature)', fontweight='bold')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
@@ -408,7 +437,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     
     axes[1].set_xscale('log')
     axes[1].set_xlabel('$α$ (inverse temperature)', fontsize=12)
-    axes[1].set_ylabel('$\\tilde{μ}_{xx}$', fontsize=12)
+    axes[1].set_ylabel('$\\tilde{μ}_{xy}$', fontsize=12)
     axes[1].set_title('Mobility vs. Temperature\n(fixed driving)', fontweight='bold')
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
@@ -444,11 +473,11 @@ def analyze_optimal_point(alpha_vals, eps_vals, mu_xx_grid):
     print("="*60)
     print(f"\nOptimal parameters:")
     print(f"  α* = {alpha_opt:.3f}  (A/kBT)")
-    print(f"  β* = {eps_opt:.3f}  (F·L/kBT)")
+    print(f"  ε* = {eps_opt:.3f}  (FL/Aa)")
     print(f"  μ̃_max = {mu_max:.4f}")
     print(f"\nPhysical interpretation:")
     print(f"  Optimal kBT/A = {1/alpha_opt:.3f}")
-    print(f"  Optimal F·L/kBT = {eps_opt:.3f}")
+    print(f"  Optimal FyL/Aa = {eps_opt:.3f}")
     print("="*60 + "\n")
     
     return {'alpha_opt': alpha_opt, 'eps_opt': eps_opt, 'mu_max': mu_max}
@@ -464,9 +493,9 @@ def main():
     print(f"\nStudy directory: {args.study_dir}")
     print(f"Parameter ranges:")
     print(f"  α: [{args.alpha_min}, {args.alpha_max}] ({args.n_alpha} points)")
-    print(f"  ε: [{args.eps_min}, {args.eps_max}] ({args.n_eps} points)")
-    print(f"Total simulations: {args.n_alpha * args.n_eps}")
-    
+    print(f"  εy: [{args.epsy_min}, {args.epsy_max}] ({args.n_epsy} points)")
+    print(f"Total simulations: {args.n_alpha * (args.n_epsy + 1)}")
+
     # Generate parameter grid
     param_list, alpha_vals, eps_vals = generate_parameter_grid(args)
     
@@ -488,7 +517,7 @@ def main():
             outdir = get_output_dir(args.study_dir, alpha, eps)
             stats_file = outdir / 'stats.json'
             
-            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, ε={eps:.4f}")
+            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, εy={eps:.4f}")
             
             # Check if already exists
             if args.skip_existing and stats_file.exists():
@@ -521,7 +550,7 @@ def main():
     print(f"{'='*60}\n")
     
     results = load_results(args.study_dir, alpha_vals, eps_vals)
-    mu_xx_grid, mu_yx_grid, D_xx_grid, D_xy_grid, D_yy_grid = extract_mobility_grid(results, alpha_vals, eps_vals, args.L, args.gamma, args.A)
+    mu_xx_grid, mu_yx_grid, D_xx_grid, D_xy_grid, D_yy_grid = extract_mobility_grid(results, alpha_vals, eps_vals, args.epsx, args.L, args.M, args.gamma, args.A)
     
     # Generate plots
     plot_mobility_phase_diagram(alpha_vals, eps_vals, mu_xx_grid, args.study_dir)
@@ -534,7 +563,7 @@ def main():
     # Save summary
     summary = {
         'alpha_vals': alpha_vals.tolist(),
-        'eps_vals': eps_vals.tolist(),
+        'epsy_vals': eps_vals.tolist(),
         'mu_xx_grid': mu_xx_grid.tolist(),
         'mu_yx_grid': mu_yx_grid.tolist(),
         'D_xx_grid': D_xx_grid.tolist(),
