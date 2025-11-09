@@ -25,6 +25,7 @@ parser.add_argument('--a', type=float, default=1.0, help='shape factor of the "w
 parser.add_argument('--L', type=float, default=1.0, help='distance between peaks of "weave" potential in x-y direction')
 parser.add_argument('--M', type=float, default=1.0, help='distance between peaks of "weave" potential in x+y direction')
 parser.add_argument('--dt', type=float, default=0.001, help='time step')
+parser.add_argument('--int', type=str, default='BAOAB', help='EM (Euler Murayama) | BAOAB (symmetric splitting)')
 parser.add_argument('--nsteps', type=int, default=20000, help='number of steps')
 parser.add_argument('--ntrajs', type=int, default=100, help='number of trajectories')
 parser.add_argument('--x0', type=float, default=0.0, help='initial x position')
@@ -153,7 +154,7 @@ def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     plt.tight_layout()
     return fig
 
-def run_single_trajectory(params):
+def run_single_trajectory_EM(params):
     """
     Simulate Brownian motion using the Langevin equation with Euler-Maruyama integration.
     
@@ -233,6 +234,95 @@ def run_single_trajectory(params):
     incr = args['outfreq']
     return t[::incr], x[::incr], y[::incr], u[::incr], v[::incr]
 
+def run_single_trajectory_BAOAB(params):
+    """
+    Simulate Brownian motion using the Langevin equation with BAOAB integration.
+    
+    The equation of motion is:
+    m dv/dt = -k*x - gamma*v + xi(t)
+    
+    where xi(t) is white noise with <xi(t)xi(t')> = 2*gamma*kBT*delta(t-t')
+    
+    Parameters:
+    -----------
+    params : dict
+        Dictionary containing all simulation parameters
+    
+    Returns:
+    --------
+    t, x, v : arrays
+        Time, position, and velocity trajectories
+    """
+
+    # Unpack parameters
+    m = params['m']
+    gamma = params['gamma']
+    kT = params['kT']
+    Fpx, Fpy = params['Fpx'], params['Fpy']
+    Fp = np.array([Fpx, Fpy])
+    a = params['a']
+    L = params['L']
+    M = params['M']
+    dt = params['dt']
+    nsteps = params['nsteps']
+    x0 = params['x0']
+    y0 = params['y0']
+    u0 = params['u0']
+    v0 = params['v0']
+    traj_seed = params['traj_seed']
+
+    # Set random seed for this trajectory (different for each trajectory)
+    np.random.seed(traj_seed)
+
+    # Initialize arrays
+    t = np.zeros(nsteps)
+    x = np.zeros(nsteps)
+    y = np.zeros(nsteps)
+    u = np.zeros(nsteps)
+    v = np.zeros(nsteps)
+        
+    # Noise strength: sqrt(2 * gamma * kBT / mass)
+    c1 = np.exp(-gamma * dt)
+    c2 = np.sqrt((1 - c1**2) * kT / m)
+ 
+    x[0] = x0
+    y[0] = y0
+    u[0] = u0
+    v[0] = v0
+    
+    # BAOAB integration
+    for i in range(nsteps - 1):
+        xvec = np.array([x[i], y[i]])
+        uvec = np.array([u[i], v[i]])
+
+        # B: Deterministic force, F(x, t)
+        F = Fp - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
+        uvec_half = uvec + 0.5*(F / m)*dt
+
+        # A: Half position step
+        xvec_half = xvec + 0.5*uvec_half*dt
+        
+        # O: OU, Random force from standard normal distribution
+        uvec_ou = c1*uvec_half + c2*np.random.randn(2)
+
+        # A: second half position step
+        xvec_new = xvec_half + 0.5*uvec_ou*dt
+
+        # B: second half velocity step, F(xnew, t+dt)
+        F = Fp - gradU(xvec_new[0], xvec_new[1], a, 2*np.pi/L, 2*np.pi/M)
+        uvec_new = uvec_ou + 0.5*(F / m)*dt
+
+        # Store results
+        u[i + 1] = uvec_new[0]
+        v[i + 1] = uvec_new[1]
+        x[i + 1] = xvec_new[0]
+        y[i + 1] = xvec_new[1]
+        t[i + 1] = t[i] + dt
+
+    incr = args['outfreq']
+    return t[::incr], x[::incr], y[::incr], u[::incr], v[::incr]
+
+
 def langevin_simulation_parallel(params):
     """
     Run multiple Langevin simulations in parallel.
@@ -270,10 +360,14 @@ def langevin_simulation_parallel(params):
         params_i = copy.copy(params)
         params_i['traj_seed'] = seed + i  # Unique seed for each trajectory
         param_list.append(params_i)
+
+    run_single_trajectory_function = run_single_trajectory_BAOAB
+    if params['int'] == 'EM':
+        run_single_trajectory_function = run_single_trajectory_EM
     
     # Run simulations in parallel
     with Pool(ncores) as pool:
-        results = pool.map(run_single_trajectory, param_list)
+        results = pool.map(run_single_trajectory_function, param_list)
     
     # Concatenate results
     t_all = np.concatenate([r[0] for r in results])
@@ -617,12 +711,17 @@ if __name__ == "__main__":
     Fpx, Fpy = args['Fpx'], args['Fpy']
     L, M = args['L'], args['M']
     args['beta_x'] = Fpx * L / kT   # Peclet number
-    args['eps_x'] = Fpx * L / (A*a) # Tilting parameter
-    args['beta_y'] = Fpy * M / kT   # Peclet number
-    args['eps_y'] = Fpy * M / (A*a) # Tilting parameter
     gamma, m = args['gamma'], args['m']
+    if A*a != 0:
+        args['eps_x'] = Fpx * L / (A*a) # Tilting parameter
+        args['eps_y'] = Fpy * M / (A*a) # Tilting parameter
+        args['zeta'] = gamma**2 / (4*m*A*a/L**2)
+    else:
+        args['eps_x'] = np.nan
+        args['eps_y'] = np.nan
+        args['zeta'] = np.nan
+    args['beta_y'] = Fpy * M / kT   # Peclet number
     args['lambda'] = L / M          # Aspect ratio
-    args['zeta'] = gamma**2 / (4*m*A*a/L**2)
     args['tau'] = kT / (gamma * L**2)
     
     print("\nRunning Langevin dynamics simulation...")
@@ -677,4 +776,4 @@ if __name__ == "__main__":
         fig2 = plot_2d_trajectory_colored(x[:nsamples-1], y[:nsamples-1], potential_func=U)
         if show_plots:
             plt.show()
-        fig.savefig(os.path.join(outdir, 'trajectory1.pdf'), dpi=300, bbox_inches='tight')
+        fig2.savefig(os.path.join(outdir, 'trajectory1.pdf'), dpi=300, bbox_inches='tight')

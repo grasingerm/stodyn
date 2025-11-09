@@ -60,7 +60,7 @@ def parse_arguments():
                        help='Time step')
     parser.add_argument('--nsteps', type=int, default=20000,
                        help='Number of steps per trajectory')
-    parser.add_argument('--ntrajs', type=int, default=1000,
+    parser.add_argument('--ntrajs', type=int, default=100,
                        help='Number of trajectories')
     parser.add_argument('--outfreq', type=int, default=1,
                        help='Number of iterations per sample')
@@ -377,14 +377,14 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"\nSaved: {output_path}")
     
-def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
+def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir, n_slices=5):
     """
     Plot 1D slices through parameter space.
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
     # Left: μ vs β for fixed α values
-    alpha_samples = np.linspace(min(alpha_vals), max(alpha_vals))
+    alpha_samples = np.linspace(min(alpha_vals), max(alpha_vals), n_slices)
     for alpha_sample in alpha_samples:
         idx = np.argmin(np.abs(alpha_vals - alpha_sample))
         alpha_actual = alpha_vals[idx]
@@ -399,7 +399,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
     axes[0].grid(True, alpha=0.3)
     
     # Right: μ vs α for fixed β values
-    eps_samples = np.linspace(min(eps_vals), max(eps_vals))
+    eps_samples = np.linspace(min(eps_vals), max(eps_vals), n_slices)
     for eps_sample in eps_samples:
         idx = np.argmin(np.abs(eps_vals - eps_sample))
         eps_actual = eps_vals[idx]
