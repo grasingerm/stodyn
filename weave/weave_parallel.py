@@ -38,6 +38,7 @@ parser.add_argument('--max_lag', type=int, default=10, help='maximum amount of l
 parser.add_argument('--outdir', type=str, default="temp", help='output directory')
 parser.add_argument('--do_plots', default=False, action="store_true", help='create plots')
 parser.add_argument('--show_plots', default=False, action="store_true", help='show plots')
+parser.add_argument('--save_trajs', default=False, action="store_true", help='save trajectories')
 parser.add_argument('--seed', type=int, help='seed for random number generator')
 parser.add_argument('--ncores', type=int, default=None, help='number of cores to use (default: all available)')
 
@@ -736,16 +737,18 @@ if __name__ == "__main__":
     # Run simulation
     t, x, y, u, v = langevin_simulation_parallel(args)
 
-    # Save trajectories
-    data_dict = {
-            'time': t,
-            'x': x,
-            'y': y,
-            'u': u,
-            'v': v
-            }
-    df = pd.DataFrame(data_dict)
-    df.to_csv(os.path.join(outdir, 'trajs.csv'), index=False)
+    if args['save_trajs']:
+        print('Saving trajectories...')
+        # Save trajectories
+        data_dict = {
+                'time': t,
+                'x': x,
+                'y': y,
+                'u': u,
+                'v': v
+                }
+        df = pd.DataFrame(data_dict)
+        df.to_csv(os.path.join(outdir, 'trajs.csv'), index=False)
     
     # Analyze statistics
     ntrajs = args['ntrajs']

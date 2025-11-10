@@ -324,12 +324,13 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
     """
     Create main phase diagram plot.
     """
-    fig, ax = plt.subplots(figsize=(10, 8))
     
     # Create meshgrid
     Eps, Alpha = np.meshgrid(eps_vals, alpha_vals)
 
-    for (grid, label) in zip([D_xx_grid, D_xy_grid, D_yy_grid],['D_{xx}', 'D_{xy}', 'D_{yy}']):
+    for (grid, label, name) in zip([D_xx_grid, D_xy_grid, D_yy_grid],['D_{xx}', 'D_{xy}', 'D_{yy}'],['Dxx', 'Dxy', 'Dyy']):
+        # Initiate new figure 
+        fig, ax = plt.subplots(figsize=(10, 8))
         
         # Plot heatmap
         levels = 20
@@ -373,7 +374,7 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
         # Save
         study_path = Path(study_dir)
         study_path.mkdir(parents=True, exist_ok=True)
-        output_path = study_path / (label + '_phase_diagram.pdf')
+        output_path = study_path / (name + '_phase_diagram.pdf')
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"\nSaved: {output_path}")
     
@@ -399,7 +400,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir, n_slices=5
     axes[0].grid(True, alpha=0.3)
     
     # Right: μ vs α for fixed β values
-    eps_samples = np.linspace(min(eps_vals), max(eps_vals), n_slices)
+    eps_samples = [10**x for x in np.linspace(np.log10(min(eps_vals)), np.log10(max(eps_vals)), n_slices)]
     for eps_sample in eps_samples:
         idx = np.argmin(np.abs(eps_vals - eps_sample))
         eps_actual = eps_vals[idx]
