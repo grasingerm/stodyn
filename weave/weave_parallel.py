@@ -28,8 +28,8 @@ parser.add_argument('--dt', type=float, default=0.001, help='time step')
 parser.add_argument('--int', type=str, default='BAOAB', help='EM (Euler Murayama) | BAOAB (symmetric splitting)')
 parser.add_argument('--nsteps', type=int, default=20000, help='number of steps')
 parser.add_argument('--ntrajs', type=int, default=100, help='number of trajectories')
-parser.add_argument('--x0', type=float, default=0.0, help='initial x position')
-parser.add_argument('--y0', type=float, default=0.0, help='initial y position')
+parser.add_argument('--x0_L', type=float, default=-0.25, help='initial x position in units of L, x/L')
+parser.add_argument('--y0_M', type=float, default=0.0, help='initial y position in units of M, y/M')
 parser.add_argument('--u0', type=float, default=0.0, help='initial x velocity')
 parser.add_argument('--v0', type=float, default=0.0, help='initial y velocity')
 parser.add_argument('--outfreq', type=int, default=1, help='number of iterations per sample')
@@ -154,6 +154,97 @@ def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     
     plt.tight_layout()
     return fig
+    
+def identify_escape_events(x, y, t, ntrajs, nsteps, L, M):
+    """
+    Identify when particle hops between valleys.
+    
+    Returns:
+    --------
+    escape_events : list of dicts
+        Each dict: {'time': t, 'direction': (dx, dy), 'angle': theta}
+    """
+    x_trajs = x.reshape(ntrajs, nsteps)
+    y_trajs = y.reshape(ntrajs, nsteps)
+    
+    escape_events = []
+    
+    for traj_idx in range(ntrajs):
+        # Coarse-grain positions to identify which valley particle is in
+        x_traj = x_trajs[traj_idx, :]
+        y_traj = y_trajs[traj_idx, :]
+        
+        # Map to valley indices (discretize to nearest valley)
+        valley_x = np.round(2*x_traj / L + 0.25)
+        valley_y = np.round(2*y_traj / M)
+        #valley_x = np.round((x_traj-y_traj) / L + 0.25)
+        #valley_y = np.round((x_traj+y_traj) / M + 0.25)
+
+        # Find when valley changes (escape event!)
+        prev_x = valley_x[0]
+        prev_y = valley_y[0]
+        for i in range(1, nsteps):
+            if valley_x[i] == prev_x or valley_y[i] == prev_y:
+                continue
+            dx = int(valley_x[i] - prev_x)
+            dy = int(valley_y[i] - prev_y)
+            
+            escape_events.append({
+                'traj_idx': int(traj_idx),
+                'time_idx': int(i),
+                'time': float(t[traj_idx * nsteps + i]),
+                'dx': dx,
+                'dy': dy,
+                'direction_vector': [dx, dy],
+                'transition': [(int(prev_x), int(prev_y)), 
+                               (int(valley_x[i]), int(valley_y[i]))]
+            })
+            
+            prev_x = valley_x[i]
+            prev_y = valley_y[i]
+    
+    return escape_events
+    
+def compute_escape_direction_autocorrelation(escape_events, max_lag=10):
+    """
+    Compute autocorrelation of escape directions.
+    
+    C(n) = <cos(θ_i - θ_{i+n})> where θ_i is direction of i-th escape
+    
+    Returns:
+    --------
+    C : array
+        Direction autocorrelation vs lag (number of escapes)
+    """
+    # Group by trajectory
+    events_by_traj = {}
+    for event in escape_events:
+        traj_idx = event['traj_idx']
+        if traj_idx not in events_by_traj:
+            events_by_traj[traj_idx] = []
+        events_by_traj[traj_idx].append(event)
+    
+    C = np.zeros(max_lag)
+    counts = np.zeros(max_lag)
+    
+    for traj_idx, events in events_by_traj.items():
+        n_events = len(events)
+        
+        for lag in range(max_lag):
+            for i in range(n_events - lag):
+                # Cosine similarity between directions
+                u_i = np.array(events[i]['direction_vector'])
+                u_j = np.array(events[i+lag]['direction_vector'])
+                
+                # Cosine of angle difference (measures alignment)
+                #C[lag] += np.cos(angle_j - angle_i)
+                C[lag] += np.dot(u_i, u_j) / 2
+                counts[lag] += 1
+    
+    # Normalize
+    C = C / counts
+    
+    return C
 
 def run_single_trajectory_EM(params):
     """
@@ -185,8 +276,8 @@ def run_single_trajectory_EM(params):
     M = params['M']
     dt = params['dt']
     nsteps = params['nsteps']
-    x0 = params['x0']
-    y0 = params['y0']
+    x0 = params['x0_L'] * L
+    y0 = params['y0_M'] * M
     u0 = params['u0']
     v0 = params['v0']
     traj_seed = params['traj_seed']
@@ -266,8 +357,8 @@ def run_single_trajectory_BAOAB(params):
     M = params['M']
     dt = params['dt']
     nsteps = params['nsteps']
-    x0 = params['x0']
-    y0 = params['y0']
+    x0 = params['x0_L'] * L
+    y0 = params['y0_M'] * M
     u0 = params['u0']
     v0 = params['v0']
     traj_seed = params['traj_seed']
@@ -532,7 +623,7 @@ def z_eq(z, ntrajs, nsteps, eqfrac):
     z_trajs = z.reshape(ntrajs, nsteps)[:,eqsteps:]
     return z_trajs.reshape(z_trajs.size)
 
-def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.5):
+def analyze_statistics(x, y, u, v, ntrajs, nsteps, escape_events, dt, m, kT, max_lag, eqfrac=0.5):
     """
     Calculate statistics from the trajectory and compare with theory.
     
@@ -582,6 +673,9 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.
     tau_x, tau_y = compute_correlation_times(C_uu_norm, C_vv_norm, dt)
     D_KG_xx, D_KG_yy, D_KG_xy, D_KG_yx = compute_diffusion_from_vacf(C_uu, C_vv, C_uv, C_vu, dt)
     
+    # Escape direction autocorrelation
+    escape_ac = compute_escape_direction_autocorrelation(escape_events)
+    
     # Ensemble average distance travelled with time
     xea = ensemble_avg(x, ntrajs, nsteps)
     yea = ensemble_avg(y, ntrajs, nsteps)
@@ -614,6 +708,9 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, dt, m, kT, max_lag, eqfrac=0.
         'D_KG_yy': D_KG_yy,
         'D_KG_xy': D_KG_xy,
         'D_KG_yx': D_KG_yx,
+        'escape_ac' : escape_ac.tolist(),
+        'x0': x[0],
+        'y0': y[0],
         'xf': xea[-1],
         'yf': xea[-1],
         'tf': t[-1]
@@ -738,6 +835,7 @@ if __name__ == "__main__":
     t, x, y, u, v = langevin_simulation_parallel(args)
 
     if args['save_trajs']:
+        print()
         print('Saving trajectories...')
         # Save trajectories
         data_dict = {
@@ -755,15 +853,22 @@ if __name__ == "__main__":
     nsteps = args['nsteps']
     nsamples = nsteps // args['outfreq']
     dt = args['dt']
+    print('Identifying escape events...')
+    escape_events = identify_escape_events(x, y, t, ntrajs, nsteps, L, M)
+    pprint(escape_events)
+    print()
+    with open(os.path.join(args['outdir'], 'escapes.json'), 'w') as json_file:
+        json.dump(escape_events, json_file, indent=4)
+
     print()
     print('Analyzing statistics...')
-    stats = analyze_statistics(x, y, u, v, ntrajs, nsamples, dt, m, kT, args['max_lag'], args['eqfrac'])
+    stats = analyze_statistics(x, y, u, v, ntrajs, nsamples, escape_events, dt, 
+                               m, kT, args['max_lag'], args['eqfrac'])
     for (k, val) in stats.items():
         if type(val) == list:
             continue
         print(f"\t{k} = {val}")
     print()
-
     with open(os.path.join(args['outdir'], 'stats.json'), 'w') as json_file:
         json.dump(stats, json_file, indent=4)
     
