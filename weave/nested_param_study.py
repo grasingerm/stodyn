@@ -32,7 +32,7 @@ import time
 # =============================================================================
 
 # Physical parameters to sweep
-A_VALUES = [4.0]                               # Barrier amplitude
+A_VALUES = [1.0]                               # Barrier amplitude
 a_VALUES = [0.25, 0.5, 1.0, 2.0, 4.0]          # Shape factor (barrier sharpness)
 L_VALUES = [0.25, 1.0, 4.0, 10.0]              # Length scale in x-y direction
 M_VALUES = [1.0]                               # Length scale in x+y direction

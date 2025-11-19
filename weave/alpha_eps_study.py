@@ -388,7 +388,7 @@ def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir, n_slices=5
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
     # Left: μ vs β for fixed α values
-    alpha_samples = np.linspace(min(alpha_vals), max(alpha_vals), n_slices)
+    alpha_samples = [10**x for x in np.linspace(np.log10(min(alpha_vals)), np.log10(max(alpha_vals)), n_slices)]
     for alpha_sample in alpha_samples:
         idx = np.argmin(np.abs(alpha_vals - alpha_sample))
         alpha_actual = alpha_vals[idx]
