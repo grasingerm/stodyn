@@ -39,6 +39,7 @@ parser.add_argument('--outdir', type=str, default="temp", help='output directory
 parser.add_argument('--do_plots', default=False, action="store_true", help='create plots')
 parser.add_argument('--show_plots', default=False, action="store_true", help='show plots')
 parser.add_argument('--save_trajs', default=False, action="store_true", help='save trajectories')
+parser.add_argument('--print_escapes', default=False, action="store_true", help='print out escape events')
 parser.add_argument('--seed', type=int, help='seed for random number generator')
 parser.add_argument('--ncores', type=int, default=None, help='number of cores to use (default: all available)')
 
@@ -855,8 +856,9 @@ if __name__ == "__main__":
     dt = args['dt']
     print('Identifying escape events...')
     escape_events = identify_escape_events(x, y, t, ntrajs, nsteps, L, M)
-    pprint(escape_events)
-    print()
+    if args['print_escapes']:
+        pprint(escape_events)
+        print()
     with open(os.path.join(args['outdir'], 'escapes.json'), 'w') as json_file:
         json.dump(escape_events, json_file, indent=4)
 

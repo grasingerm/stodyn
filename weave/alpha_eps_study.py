@@ -17,6 +17,7 @@ import os
 import argparse
 from pathlib import Path
 import time
+from multiprocessing import Pool, cpu_count
 
 
 def parse_arguments():
@@ -27,16 +28,16 @@ def parse_arguments():
     )
     
     # Study parameters
-    parser.add_argument('--alpha_min', type=float, default=0.1,
+    parser.add_argument('--alpha_min', type=float, default=0.25,
                        help='Minimum α = A/kBT')
     parser.add_argument('--alpha_max', type=float, default=20.0,
                        help='Maximum α = A/kBT')
     parser.add_argument('--n_alpha', type=int, default=15,
                        help='Number of α values')
     
-    parser.add_argument('--eps_min', type=float, default=0.05,
+    parser.add_argument('--eps_min', type=float, default=0.25,
                    help='Minimum ε = FL/Aa')
-    parser.add_argument('--eps_max', type=float, default=5.0,
+    parser.add_argument('--eps_max', type=float, default=2.5,
                    help='Maximum ε = FL/Aa')
     parser.add_argument('--n_eps', type=int, default=15,
                    help='Number of ε values')
@@ -64,7 +65,9 @@ def parse_arguments():
                        help='Number of trajectories')
     parser.add_argument('--outfreq', type=int, default=1,
                        help='Number of iterations per sample')
-    parser.add_argument('--ncores', type=int, default=None,
+    parser.add_argument('--ncores', type=int, default=1,
+                       help='Number of cores for parallelization')
+    parser.add_argument('--outer_ncores', type=int, default=None,
                        help='Number of cores for parallelization')
     
     # Directory management
@@ -445,14 +448,39 @@ def analyze_optimal_point(alpha_vals, eps_vals, mu_xx_grid):
     print("="*60)
     print(f"\nOptimal parameters:")
     print(f"  α* = {alpha_opt:.3f}  (A/kBT)")
-    print(f"  β* = {eps_opt:.3f}  (F·L/kBT)")
+    print(f"  ε* = {eps_opt:.3f}  (F·L/Aa)")
     print(f"  μ̃_max = {mu_max:.4f}")
     print(f"\nPhysical interpretation:")
     print(f"  Optimal kBT/A = {1/alpha_opt:.3f}")
-    print(f"  Optimal F·L/kBT = {eps_opt:.3f}")
+    print(f"  Optimal F·L/Aa = {eps_opt:.3f}")
     print("="*60 + "\n")
     
     return {'alpha_opt': alpha_opt, 'eps_opt': eps_opt, 'mu_max': mu_max}
+
+def run_params(local_args):
+    # unpack simulation info
+    i, params = local_args[0]
+    n = local_args[1]
+    args = local_args[2]
+    alpha = params['alpha']
+    eps = params['eps']
+    outdir = get_output_dir(args.study_dir, alpha, eps)
+    stats_file = outdir / 'stats.json'
+    
+    print(f"\n[{i+1}/{n}] α={alpha:.4f}, ε={eps:.4f}")
+    
+    # Check if already exists
+    if args.skip_existing and stats_file.exists():
+        print(f"  Skipping (stats.json exists)")
+        return np.array([0, 1, 0])
+            
+    # Run simulation
+    success = run_simulation(params, outdir, args.weave_script, args.dry_run)
+    
+    if success:
+        return np.array([1, 0, 0])
+    else:
+        return np.array([0, 0, 1])
 
 
 def main():
@@ -477,35 +505,17 @@ def main():
         print("RUNNING SIMULATIONS")
         print(f"{'='*60}\n")
         
-        completed = 0
-        skipped = 0
-        failed = 0
-        
         start_time = time.time()
         
-        for i, params in enumerate(param_list):
-            alpha = params['alpha']
-            eps = params['eps']
-            outdir = get_output_dir(args.study_dir, alpha, eps)
-            stats_file = outdir / 'stats.json'
-            
-            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, ε={eps:.4f}")
-            
-            # Check if already exists
-            if args.skip_existing and stats_file.exists():
-                print(f"  Skipping (stats.json exists)")
-                skipped += 1
-                continue
-            
-            # Run simulation
-            success = run_simulation(params, outdir, args.weave_script, args.dry_run)
-            
-            if success:
-                completed += 1
-            else:
-                failed += 1
+        with Pool(args.outer_ncores) as pool:
+            results = pool.map(run_params, zip(enumerate(param_list), 
+                                               [len(param_list)]*len(param_list),
+                                               [args]*len(param_list),
+                                              ))
         
         elapsed = time.time() - start_time
+
+        completed, skipped, failed = sum(results)
         
         print(f"\n{'='*60}")
         print("SIMULATION SUMMARY")
