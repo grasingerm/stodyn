@@ -28,7 +28,7 @@ parser.add_argument('--dt', type=float, default=0.001, help='time step')
 parser.add_argument('--int', type=str, default='BAOAB', help='EM (Euler Murayama) | BAOAB (symmetric splitting)')
 parser.add_argument('--nsteps', type=int, default=20000, help='number of steps')
 parser.add_argument('--ntrajs', type=int, default=100, help='number of trajectories')
-parser.add_argument('--x0_L', type=float, default=-0.25, help='initial x position in units of L, x/L')
+parser.add_argument('--x0_L', type=float, default=-0.5, help='initial x position in units of L, x/L')
 parser.add_argument('--y0_M', type=float, default=0.0, help='initial y position in units of M, y/M')
 parser.add_argument('--u0', type=float, default=0.0, help='initial x velocity')
 parser.add_argument('--v0', type=float, default=0.0, help='initial y velocity')
@@ -46,15 +46,17 @@ parser.add_argument('--ncores', type=int, default=None, help='number of cores to
 nargs = parser.parse_args()
 args = vars(nargs)
 
-def U(x, y, A=1.0, a=1.0, w1=2*np.pi, w2=2*np.pi):
-    return A*np.exp(a*(np.sin(w1*(x-y)) + np.sin(w2*(x+y))))
+def U(x, y, A, a, L, M):
+    X = np.pi*x/L
+    Y = np.pi*y/M
+    return A*np.exp(a*(np.sin(X-Y) + np.sin(X+Y)))
 
-def gradU(x, y, A=1.0, a=1.0, w1=2*np.pi, w2=2*np.pi):
-    arg1 = w1*(x-y)
-    arg2 = w2*(x+y)
-    s1, s2, c1, c2 = np.sin(arg1), np.sin(arg2), np.cos(arg1), np.cos(arg2)
-    A1 = a*np.exp(a*(s1 + s2))
-    return A*np.array([A1*(w1*c1 + w2*c2), A1*(-w1*c1 + w2*c2)])
+def gradU(x, y, A, a, L, M):
+    X = np.pi*x/L
+    Y = np.pi*y/M
+    sx, sy, cx, cy = np.sin(X), np.sin(Y), np.cos(X), np.cos(Y)
+    Z = 2*np.pi * a*A * np.exp(2*a * (sx*cy))
+    return Z*np.array([cx*cy/L, -sx*sy/M])
         
 def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     """
@@ -176,8 +178,8 @@ def identify_escape_events(x, y, t, ntrajs, nsteps, L, M):
         y_traj = y_trajs[traj_idx, :]
         
         # Map to valley indices (discretize to nearest valley)
-        valley_x = np.round(2*x_traj / L + 0.25)
-        valley_y = np.round(2*y_traj / M)
+        valley_x = np.round(x_traj / L + 0.5)
+        valley_y = np.round(y_traj / M)
         #valley_x = np.round((x_traj-y_traj) / L + 0.25)
         #valley_y = np.round((x_traj+y_traj) / M + 0.25)
 
@@ -272,6 +274,7 @@ def run_single_trajectory_EM(params):
     gamma = params['gamma']
     kT = params['kT']
     Fpx, Fpy = params['Fpx'], params['Fpy']
+    A = params['A']
     a = params['a']
     L = params['L']
     M = params['M']
@@ -307,7 +310,7 @@ def run_single_trajectory_EM(params):
         F = np.array([
                 Fpx - gamma*u[i],
                 Fpy -gamma*v[i]
-            ]) - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
+            ]) - gradU(x[i], y[i], A, a, L, M)
         Fx, Fy = F
         
         # Random force from standard normal distribution
@@ -389,7 +392,7 @@ def run_single_trajectory_BAOAB(params):
         uvec = np.array([u[i], v[i]])
 
         # B: Deterministic force, F(x, t)
-        F = Fp - gradU(x[i], y[i], a, 2*np.pi/L, 2*np.pi/M)
+        F = Fp - gradU(x[i], y[i], A, a, L, M)
         uvec_half = uvec + 0.5*(F / m)*dt
 
         # A: Half position step
@@ -402,7 +405,7 @@ def run_single_trajectory_BAOAB(params):
         xvec_new = xvec_half + 0.5*uvec_ou*dt
 
         # B: second half velocity step, F(xnew, t+dt)
-        F = Fp - gradU(xvec_new[0], xvec_new[1], a, 2*np.pi/L, 2*np.pi/M)
+        F = Fp - gradU(xvec_new[0], xvec_new[1], A, a, L, M)
         uvec_new = uvec_ou + 0.5*(F / m)*dt
 
         # Store results
@@ -883,7 +886,7 @@ if __name__ == "__main__":
             plt.show()
         fig.savefig(os.path.join(outdir, 'statistics.pdf'), dpi=300, bbox_inches='tight')
 
-        fig2 = plot_2d_trajectory_colored(x[:nsamples-1], y[:nsamples-1], potential_func=U)
+        fig2 = plot_2d_trajectory_colored(x[:nsamples-1], y[:nsamples-1], potential_func=lambda x, y: U(x, y, A, a, L, M))
         if show_plots:
             plt.show()
         fig2.savefig(os.path.join(outdir, 'trajectory1.pdf'), dpi=300, bbox_inches='tight')
