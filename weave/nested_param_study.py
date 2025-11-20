@@ -208,7 +208,7 @@ def extract_optimal_points(base_dir, param_combinations):
                 'gamma': gamma,
                 'zeta': gamma**2 / (4 * MASS * A / L**2),  # Damping parameter
                 'alpha_opt': optimal.get('alpha_opt'),
-                'epsilon_opt': optimal.get('epsilon_opt'),
+                'eps_opt': optimal.get('eps_opt'),
                 'mu_max': optimal.get('mu_max')
             })
     
