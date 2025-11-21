@@ -228,7 +228,7 @@ def print_optimal_points_table(optimal_data):
     for data in optimal_data:
         print(f"{data['A']:6.1f} {data['a']:6.1f} {data['L']:6.1f} {data['M']:6.1f} "
               f"{data['gamma']:6.1f} {data['zeta']:8.3f} {data['alpha_opt']:8.2f} "
-              f"{data['epsilon_opt']:8.2f} {data['mu_max']:10.4f}")
+              f"{data['eps_opt']:8.2f} {data['mu_max']:10.4f}")
     
     print("="*100 + "\n")
 
@@ -245,7 +245,7 @@ def analyze_trends(optimal_data):
     gamma_vals = np.array([d['gamma'] for d in optimal_data])
     zeta_vals = np.array([d['zeta'] for d in optimal_data])
     alpha_opt_vals = np.array([d['alpha_opt'] for d in optimal_data])
-    epsilon_opt_vals = np.array([d['epsilon_opt'] for d in optimal_data])
+    eps_opt_vals = np.array([d['eps_opt'] for d in optimal_data])
     mu_max_vals = np.array([d['mu_max'] for d in optimal_data])
     
     # Create plots
@@ -260,7 +260,7 @@ def analyze_trends(optimal_data):
     axes[0, 0].grid(True, alpha=0.3)
     
     # ε* vs. shape factor a
-    axes[0, 1].scatter(a_vals, epsilon_opt_vals, c=gamma_vals, s=100,
+    axes[0, 1].scatter(a_vals, eps_opt_vals, c=gamma_vals, s=100,
                       cmap='viridis', edgecolors='black', linewidths=1)
     axes[0, 1].set_xlabel('Shape factor a', fontsize=12)
     axes[0, 1].set_ylabel('Optimal ε*', fontsize=12)
@@ -271,7 +271,7 @@ def analyze_trends(optimal_data):
     im = axes[0, 2].scatter(a_vals, mu_max_vals, c=gamma_vals, s=100,
                            cmap='viridis', edgecolors='black', linewidths=1)
     axes[0, 2].set_xlabel('Shape factor a', fontsize=12)
-    axes[0, 2].set_ylabel('Max mobility μ̃_max', fontsize=12)
+    axes[0, 2].set_ylabel('Max mobility $μ̃_{max}$', fontsize=12)
     axes[0, 2].set_title('Maximum Mobility vs. Barrier Sharpness', fontweight='bold')
     axes[0, 2].grid(True, alpha=0.3)
     cbar = plt.colorbar(im, ax=axes[0, 2], label='γ (damping)')
@@ -286,7 +286,7 @@ def analyze_trends(optimal_data):
     axes[1, 0].grid(True, alpha=0.3)
     
     # ε* vs. damping (ζ)
-    axes[1, 1].scatter(zeta_vals, epsilon_opt_vals, c=a_vals, s=100,
+    axes[1, 1].scatter(zeta_vals, eps_opt_vals, c=a_vals, s=100,
                       cmap='plasma', edgecolors='black', linewidths=1)
     axes[1, 1].set_xlabel('ζ (damping parameter)', fontsize=12)
     axes[1, 1].set_ylabel('Optimal ε*', fontsize=12)
@@ -298,7 +298,7 @@ def analyze_trends(optimal_data):
     im2 = axes[1, 2].scatter(zeta_vals, mu_max_vals, c=a_vals, s=100,
                             cmap='plasma', edgecolors='black', linewidths=1)
     axes[1, 2].set_xlabel('ζ (damping parameter)', fontsize=12)
-    axes[1, 2].set_ylabel('Max mobility μ̃_max', fontsize=12)
+    axes[1, 2].set_ylabel('Max mobility $μ̃_{max}$', fontsize=12)
     axes[1, 2].set_title('Maximum Mobility vs. Damping', fontweight='bold')
     axes[1, 2].set_xscale('log')
     axes[1, 2].grid(True, alpha=0.3)
