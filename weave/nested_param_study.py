@@ -33,10 +33,10 @@ import time
 
 # Physical parameters to sweep
 A_VALUES = [1.0]                               # Barrier amplitude
-a_VALUES = [0.25, 0.5, 1.0, 2.0, 4.0]          # Shape factor (barrier sharpness)
-L_VALUES = [0.25, 1.0, 4.0, 10.0]              # Length scale in x-y direction
+a_VALUES = [0.25, 1.0, 4.0]                    # Shape factor (barrier sharpness)
+L_VALUES = [0.25, 1.0, 4.0]                    # Length scale in x-y direction
 M_VALUES = [1.0]                               # Length scale in x+y direction
-gamma_VALUES = [0.1, 0.25, 1.0, 4.0, 10.0]     # Damping coefficient
+gamma_VALUES = [0.25, 1.0, 4.0]                # Damping coefficient
 
 # Fixed parameters for all studies
 MASS = 1.0
@@ -44,7 +44,7 @@ MASS = 1.0
 # Alpha-epsilon study parameters (passed to each inner study)
 ALPHA_MIN = 0.25
 ALPHA_MAX = 20.0
-N_ALPHA = 20
+N_ALPHA = 15
 
 EPSILON_MIN = 0.25
 EPSILON_MAX = 2.5
@@ -54,8 +54,8 @@ N_EPSILON = N_ALPHA
 DT = 0.001
 NSTEPS = 20000
 NTRAJS = 100
-NCORES = 2         
-OUTER_NCORES = 24  
+NCORES = 1         
+OUTER_NCORES = 16  
 
 # Paths
 BASE_DIR = "data/alpha-eps_parameter-sweep"

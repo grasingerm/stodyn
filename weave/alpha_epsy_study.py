@@ -408,7 +408,7 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"\nSaved: {output_path}")
     
-def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
+def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir, n_slices=5):
     """
     Plot 1D slices through parameter space.
     """
