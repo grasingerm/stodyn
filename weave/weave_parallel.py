@@ -356,6 +356,7 @@ def run_single_trajectory_BAOAB(params):
     kT = params['kT']
     Fpx, Fpy = params['Fpx'], params['Fpy']
     Fp = np.array([Fpx, Fpy])
+    A = params['A']
     a = params['a']
     L = params['L']
     M = params['M']
