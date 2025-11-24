@@ -28,7 +28,7 @@ def parse_arguments():
     )
     
     # Study parameters
-    parser.add_argument('--alpha_min', type=float, default=0.1,
+    parser.add_argument('--alpha_min', type=float, default=0.25,
                        help='Minimum α = A/kBT')
     parser.add_argument('--alpha_max', type=float, default=20.0,
                        help='Maximum α = A/kBT')
@@ -45,9 +45,9 @@ def parse_arguments():
     # Fixed physical parameters
     parser.add_argument('--epsx', type=float, default=1.0,
                        help='εx = FxL/Aa')
-    parser.add_argument('--A', type=float, default=4.0,
+    parser.add_argument('--A', type=float, default=1.0,
                        help='Barrier amplitude')
-    parser.add_argument('--a', type=float, default=4.0,
+    parser.add_argument('--a', type=float, default=1.0,
                        help='Shape factor')
     parser.add_argument('--L', type=float, default=1.0,
                        help='Length scale in x-y direction')
@@ -63,15 +63,17 @@ def parse_arguments():
                        help='Time step')
     parser.add_argument('--nsteps', type=int, default=20000,
                        help='Number of steps per trajectory')
-    parser.add_argument('--ntrajs', type=int, default=1000,
+    parser.add_argument('--ntrajs', type=int, default=100,
                        help='Number of trajectories')
     parser.add_argument('--outfreq', type=int, default=1,
                        help='Number of iterations per sample')
     parser.add_argument('--ncores', type=int, default=None,
                        help='Number of cores for parallelization')
+    parser.add_argument('--outer_ncores', type=int, default=None,
+                       help='Number of cores for parallelization')
     
     # Directory management
-    parser.add_argument('--study_dir', type=str, default='alpha_eps_study',
+    parser.add_argument('--study_dir', type=str, default='alpha_epsy_study',
                        help='Base directory for study results')
     parser.add_argument('--weave_script', type=str, default='./weave_parallel.py',
                        help='Path to weave.py script')
