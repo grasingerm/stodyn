@@ -43,9 +43,9 @@ def parse_arguments():
                    help='Number of ε values')
     
     # Fixed physical parameters
-    parser.add_argument('--A', type=float, default=4.0,
+    parser.add_argument('--A', type=float, default=1.0,
                        help='Barrier amplitude')
-    parser.add_argument('--a', type=float, default=4.0,
+    parser.add_argument('--a', type=float, default=1.0,
                        help='Shape factor')
     parser.add_argument('--L', type=float, default=1.0,
                        help='Length scale in x-y direction')
