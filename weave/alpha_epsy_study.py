@@ -484,6 +484,30 @@ def analyze_optimal_point(alpha_vals, eps_vals, mu_xx_grid):
     
     return {'alpha_opt': alpha_opt, 'eps_opt': eps_opt, 'mu_max': mu_max}
 
+def run_params(local_args):
+    # unpack simulation info
+    i, params = local_args[0]
+    n = local_args[1]
+    args = local_args[2]
+    alpha = params['alpha']
+    eps = params['eps']
+    outdir = get_output_dir(args.study_dir, alpha, eps)
+    stats_file = outdir / 'stats.json'
+    
+    print(f"\n[{i+1}/{n}] α={alpha:.4f}, ε={eps:.4f}")
+    
+    # Check if already exists
+    if args.skip_existing and stats_file.exists():
+        print(f"  Skipping (stats.json exists)")
+        return np.array([0, 1, 0])
+            
+    # Run simulation
+    success = run_simulation(params, outdir, args.weave_script, args.dry_run)
+    
+    if success:
+        return np.array([1, 0, 0])
+    else:
+        return np.array([0, 0, 1])
 
 def main():
     """Main execution."""
@@ -507,35 +531,17 @@ def main():
         print("RUNNING SIMULATIONS")
         print(f"{'='*60}\n")
         
-        completed = 0
-        skipped = 0
-        failed = 0
-        
         start_time = time.time()
         
-        for i, params in enumerate(param_list):
-            alpha = params['alpha']
-            eps = params['eps']
-            outdir = get_output_dir(args.study_dir, alpha, eps)
-            stats_file = outdir / 'stats.json'
-            
-            print(f"\n[{i+1}/{len(param_list)}] α={alpha:.4f}, εy={eps:.4f}")
-            
-            # Check if already exists
-            if args.skip_existing and stats_file.exists():
-                print(f"  Skipping (stats.json exists)")
-                skipped += 1
-                continue
-            
-            # Run simulation
-            success = run_simulation(params, outdir, args.weave_script, args.dry_run)
-            
-            if success:
-                completed += 1
-            else:
-                failed += 1
+        with Pool(args.outer_ncores) as pool:
+            results = pool.map(run_params, zip(enumerate(param_list), 
+                                               [len(param_list)]*len(param_list),
+                                               [args]*len(param_list),
+                                              ))
         
         elapsed = time.time() - start_time
+
+        completed, skipped, failed = sum(results)
         
         print(f"\n{'='*60}")
         print("SIMULATION SUMMARY")
