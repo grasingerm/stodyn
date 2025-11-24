@@ -28,7 +28,7 @@ def parse_arguments():
     )
     
     # Study parameters
-    parser.add_argument('--alpha_min', type=float, default=0.1,
+    parser.add_argument('--alpha_min', type=float, default=0.25,
                        help='Minimum α = A/kBT')
     parser.add_argument('--alpha_max', type=float, default=20.0,
                        help='Maximum α = A/kBT')
@@ -45,9 +45,9 @@ def parse_arguments():
     # Fixed physical parameters
     parser.add_argument('--epsx', type=float, default=1.0,
                        help='εx = FxL/Aa')
-    parser.add_argument('--A', type=float, default=4.0,
+    parser.add_argument('--A', type=float, default=1.0,
                        help='Barrier amplitude')
-    parser.add_argument('--a', type=float, default=4.0,
+    parser.add_argument('--a', type=float, default=1.0,
                        help='Shape factor')
     parser.add_argument('--L', type=float, default=1.0,
                        help='Length scale in x-y direction')
@@ -63,7 +63,7 @@ def parse_arguments():
                        help='Time step')
     parser.add_argument('--nsteps', type=int, default=20000,
                        help='Number of steps per trajectory')
-    parser.add_argument('--ntrajs', type=int, default=1000,
+    parser.add_argument('--ntrajs', type=int, default=100,
                        help='Number of trajectories')
     parser.add_argument('--outfreq', type=int, default=1,
                        help='Number of iterations per sample')
@@ -406,7 +406,7 @@ def plot_diffusion_phase_diagrams(alpha_vals, eps_vals, D_xx_grid, D_xy_grid, D_
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"\nSaved: {output_path}")
     
-def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir):
+def plot_mobility_slices(alpha_vals, eps_vals, mu_xx_grid, study_dir, n_slices=5):
     """
     Plot 1D slices through parameter space.
     """
