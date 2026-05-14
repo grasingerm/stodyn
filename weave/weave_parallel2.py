@@ -21,7 +21,6 @@ parser.add_argument('--kT', type=float, default=1.0, help='temperature')
 parser.add_argument('--Fpx', type=float, default=1.0, help='force from pressure gradient in x direction')
 parser.add_argument('--Fpy', type=float, default=0.0, help='force from pressure gradient in y direction')
 parser.add_argument('--A', type=float, default=1.0, help='amplitude of the "weave" potential')
-parser.add_argument('--a', type=float, default=1.0, help='shape factor of the "weave" potential, greater "a" corresponds with sharper peaks and flatter wells')
 parser.add_argument('--L', type=float, default=1.0, help='distance between peaks of "weave" potential in x-y direction')
 parser.add_argument('--M', type=float, default=1.0, help='distance between peaks of "weave" potential in x+y direction')
 parser.add_argument('--dt', type=float, default=0.001, help='time step')
@@ -46,23 +45,21 @@ parser.add_argument('--ncores', type=int, default=None, help='number of cores to
 nargs = parser.parse_args()
 args = vars(nargs)
 
-def U(x, y, A, a, L, M):
+def U(x, y, A, L, M):
     X = np.pi*x/L
     Y = np.pi*y/M
-    return A*np.exp(a*(np.sin(X-Y) + np.sin(X+Y)))
+    return A*(np.sin(X-Y) + np.sin(X+Y))
 
-def gradU(x, y, A, a, L, M):
+def gradU(x, y, A, L, M):
     X = np.pi*x/L
     Y = np.pi*y/M
     sx, sy, cx, cy = np.sin(X), np.sin(Y), np.cos(X), np.cos(Y)
-    Z = 2*np.pi * a*A * np.exp(2*a * (sx*cy))
-    return Z*np.array([cx*cy/L, -sx*sy/M])
+    return 2*A*np.pi*np.array([cx*cy/L, -sx*sy/M])
 
-def T_star_approx(A, a, F, L):
-    x = F*L / (2*np.pi*A*a)
+def T_star_approx(A, F, L):
+    x = F*L / (2*np.pi*A)
     lamb = np.sqrt(1 - x**2) / x
     beta = np.pi - np.arctan(lamb)
-    print('lamb = {}, beta = {}, 1 - pi / (beta + lamb) = {}'.format(lamb, beta, 1 - np.pi / (beta + lamb)))
     return -F * L / np.log(1 - np.pi / (beta + lamb))
         
 def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
@@ -282,7 +279,6 @@ def run_single_trajectory_EM(params):
     kT = params['kT']
     Fpx, Fpy = params['Fpx'], params['Fpy']
     A = params['A']
-    a = params['a']
     L = params['L']
     M = params['M']
     dt = params['dt']
@@ -316,8 +312,8 @@ def run_single_trajectory_EM(params):
         # Deterministic force
         F = np.array([
                 Fpx - gamma*u[i],
-                Fpy -gamma*v[i]
-            ]) - gradU(x[i], y[i], A, a, L, M)
+                Fpy - gamma*v[i]
+            ]) - gradU(x[i], y[i], A, L, M)
         Fx, Fy = F
         
         # Random force from standard normal distribution
@@ -364,7 +360,6 @@ def run_single_trajectory_BAOAB(params):
     Fpx, Fpy = params['Fpx'], params['Fpy']
     Fp = np.array([Fpx, Fpy])
     A = params['A']
-    a = params['a']
     L = params['L']
     M = params['M']
     dt = params['dt']
@@ -400,7 +395,7 @@ def run_single_trajectory_BAOAB(params):
         uvec = np.array([u[i], v[i]])
 
         # B: Deterministic force, F(x, t)
-        F = Fp - gradU(x[i], y[i], A, a, L, M)
+        F = Fp - gradU(x[i], y[i], A, L, M)
         uvec_half = uvec + 0.5*(F / m)*dt
 
         # A: Half position step
@@ -413,7 +408,7 @@ def run_single_trajectory_BAOAB(params):
         xvec_new = xvec_half + 0.5*uvec_ou*dt
 
         # B: second half velocity step, F(xnew, t+dt)
-        F = Fp - gradU(xvec_new[0], xvec_new[1], A, a, L, M)
+        F = Fp - gradU(xvec_new[0], xvec_new[1], A, L, M)
         uvec_new = uvec_ou + 0.5*(F / m)*dt
 
         # Store results
@@ -816,16 +811,16 @@ if __name__ == "__main__":
         np.random.seed(seed)
         args['seed'] = seed
 
-    A, a, kT = args['A'], args['a'], args['kT']
-    args['alpha'] = A*a / kT          # barrier to thermal energy ratio
+    A, kT = args['A'], args['kT']
+    args['alpha'] = A / kT          # barrier to thermal energy ratio
     Fpx, Fpy = args['Fpx'], args['Fpy']
     L, M = args['L'], args['M']
     args['beta_x'] = Fpx * L / kT   # Peclet number
     gamma, m = args['gamma'], args['m']
-    if A*a != 0:
-        args['eps_x'] = Fpx * L / (A*a) # Tilting parameter
-        args['eps_y'] = Fpy * M / (A*a) # Tilting parameter
-        args['zeta'] = gamma**2 / (4*m*A*a/L**2)
+    if A != 0:
+        args['eps_x'] = Fpx * L / A # Tilting parameter
+        args['eps_y'] = Fpy * M / A # Tilting parameter
+        args['zeta'] = gamma**2 / (4*m*A/L**2)
     else:
         args['eps_x'] = np.nan
         args['eps_y'] = np.nan
@@ -833,7 +828,7 @@ if __name__ == "__main__":
     args['beta_y'] = Fpy * M / kT   # Peclet number
     args['lambda'] = L / M          # Aspect ratio
     args['tau'] = kT / (gamma * L**2)
-    args['T_star_approx'] = T_star_approx(A, a, Fpx, L)
+    args['T_star_approx'] = T_star_approx(A, Fpx, L)
     
     print("\nRunning Langevin dynamics simulation...")
     print()
