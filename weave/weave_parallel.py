@@ -13,6 +13,7 @@ import time
 import pandas as pd
 from pprint import pprint
 from scipy.integrate import simpson
+from helpers import T_star_approx
 
 parser = argparse.ArgumentParser(description='Simulation of pressure-driven Brownian motion through a 2D weave', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
@@ -58,13 +59,6 @@ def gradU(x, y, A, a, L, M):
     Z = 2*np.pi * a*A * np.exp(2*a * (sx*cy))
     return Z*np.array([cx*cy/L, -sx*sy/M])
 
-def T_star_approx(A, a, F, L):
-    x = F*L / (2*np.pi*A*a)
-    lamb = np.sqrt(1 - x**2) / x
-    beta = np.pi - np.arctan(lamb)
-    print('lamb = {}, beta = {}, 1 - pi / (beta + lamb) = {}'.format(lamb, beta, 1 - np.pi / (beta + lamb)))
-    return -F * L / np.log(1 - np.pi / (beta + lamb))
-        
 def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     """
     Plot a 2D trajectory with color gradient showing time progression.
@@ -817,15 +811,15 @@ if __name__ == "__main__":
         args['seed'] = seed
 
     A, a, kT = args['A'], args['a'], args['kT']
-    args['alpha'] = A*a / kT          # barrier to thermal energy ratio
+    args['alpha'] = A / kT          # barrier to thermal energy ratio
     Fpx, Fpy = args['Fpx'], args['Fpy']
     L, M = args['L'], args['M']
     args['beta_x'] = Fpx * L / kT   # Peclet number
     gamma, m = args['gamma'], args['m']
     if A*a != 0:
-        args['eps_x'] = Fpx * L / (A*a) # Tilting parameter
-        args['eps_y'] = Fpy * M / (A*a) # Tilting parameter
-        args['zeta'] = gamma**2 / (4*m*A*a/L**2)
+        args['eps_x'] = Fpx * L / A # Tilting parameter
+        args['eps_y'] = Fpy * M / A # Tilting parameter
+        args['zeta'] = gamma**2 / (4*m*A/L**2)
     else:
         args['eps_x'] = np.nan
         args['eps_y'] = np.nan

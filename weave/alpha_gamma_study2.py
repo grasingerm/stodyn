@@ -20,6 +20,7 @@ import argparse
 from pathlib import Path
 import time
 from multiprocessing import Pool, cpu_count
+from helpers import T_star_approx2
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -88,12 +89,6 @@ def parse_arguments():
                        help='Use log scale for contour levels')
     
     return parser.parse_args()
-
-def T_star_approx(A, F, L):
-    x = F*L / (2*np.pi*A)
-    lamb = np.sqrt(1 - x**2) / x
-    beta = np.pi - np.arctan(lamb)
-    return -F * L / np.log(1 - np.pi / (beta + lamb))
 
 def generate_parameter_grid(args):
     """
@@ -548,7 +543,7 @@ def main():
     # Generate plots
     # eps_x = Fpx * L / A # Tilting parameter
     F = args.epsx * args.A / args.L
-    alpha_star = args.A / (T_star_approx(args.A, F, args.L))
+    alpha_star = args.A / (T_star_approx2(args.A, F, args.L))
     plot_phase_diagram(alpha_vals, gamma_vals, mu_xx_grid, args.study_dir, 
                        args.epsx, log_contours=False, 
                        alpha_star_approx=alpha_star)

@@ -20,6 +20,7 @@ import argparse
 from pathlib import Path
 import time
 from multiprocessing import Pool, cpu_count
+from helpers import T_star_approx
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -29,9 +30,9 @@ def parse_arguments():
     )
     
     # Study parameters
-    parser.add_argument('--alpha_min', type=float, default=0.25,
+    parser.add_argument('--alpha_min', type=float, default=0.1,
                        help='Minimum α = A/kBT')
-    parser.add_argument('--alpha_max', type=float, default=20.0,
+    parser.add_argument('--alpha_max', type=float, default=10.0,
                        help='Maximum α = A/kBT')
     parser.add_argument('--n_alpha', type=int, default=15,
                        help='Number of α values')
@@ -48,8 +49,8 @@ def parse_arguments():
                        help='ε_x = F_x·L/(A·a) (fixed forcing)')
     parser.add_argument('--A', type=float, default=1.0,
                        help='Barrier amplitude')
-#    parser.add_argument('--a', type=float, default=1.0,
-#                       help='Shape factor')
+    parser.add_argument('--a', type=float, default=1.0,
+                       help='Shape factor')
     parser.add_argument('--L', type=float, default=1.0,
                        help='Length scale in x-y direction')
     parser.add_argument('--M', type=float, default=1.0,
@@ -60,7 +61,7 @@ def parse_arguments():
     # Simulation parameters
     parser.add_argument('--dt', type=float, default=0.001,
                        help='Time step')
-    parser.add_argument('--nsteps', type=int, default=20000,
+    parser.add_argument('--nsteps', type=int, default=200000,
                        help='Number of steps per trajectory')
     parser.add_argument('--ntrajs', type=int, default=100,
                        help='Number of trajectories')
@@ -91,17 +92,11 @@ def parse_arguments():
     
     return parser.parse_args()
 
-def T_star_approx(A, a, F, L):
-    x = F*L / (2*np.pi*A*a)
-    lamb = np.sqrt(1 - x**2) / x
-    beta = np.pi - np.arctan(lamb)
-    return -F * L / np.log(1 - np.pi / (beta + lamb))
-
 def generate_parameter_grid(args):
     """
     Generate (α, γ) parameter grid.
     """
-    Fpx = args.epsx * args.A * args.a / args.L
+    Fpx = args.epsx * args.A / args.L
     
     alpha_vals = np.logspace(np.log10(args.alpha_min), 
                              np.log10(args.alpha_max), 
@@ -112,7 +107,7 @@ def generate_parameter_grid(args):
     
     param_list = []
     for alpha in alpha_vals:
-        kT = args.A*args.a / alpha
+        kT = args.A / alpha
         for gamma in gamma_vals:
             zeta = gamma**2 * args.L**2 / (4 * args.m * args.A)
             

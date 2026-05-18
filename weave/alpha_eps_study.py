@@ -106,8 +106,8 @@ def generate_parameter_grid(args):
         kT = args.A / alpha
         
         for eps in eps_vals:
-            # ε = F·L/Aa  →  F = ε·Aa/L
-            Fpx = eps * args.A * args.a / args.L
+            # ε = F·L/Aa  →  F = ε·A/L
+            Fpx = eps * args.A / args.L
             
             # Compute β for reference
             beta = Fpx * args.L / kT  # = ε·α

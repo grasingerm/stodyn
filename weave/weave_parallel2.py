@@ -13,6 +13,7 @@ import time
 import pandas as pd
 from pprint import pprint
 from scipy.integrate import simpson
+from helpers import T_star_approx2
 
 parser = argparse.ArgumentParser(description='Simulation of pressure-driven Brownian motion through a 2D weave', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--m', type=float, default=1.0, help='mass of the particle')
@@ -56,12 +57,6 @@ def gradU(x, y, A, L, M):
     sx, sy, cx, cy = np.sin(X), np.sin(Y), np.cos(X), np.cos(Y)
     return 2*A*np.pi*np.array([cx*cy/L, -sx*sy/M])
 
-def T_star_approx(A, F, L):
-    x = F*L / (2*np.pi*A)
-    lamb = np.sqrt(1 - x**2) / x
-    beta = np.pi - np.arctan(lamb)
-    return -F * L / np.log(1 - np.pi / (beta + lamb))
-        
 def plot_2d_trajectory_colored(x, y, potential_func=None, figsize=(12, 10)):
     """
     Plot a 2D trajectory with color gradient showing time progression.
@@ -828,7 +823,7 @@ if __name__ == "__main__":
     args['beta_y'] = Fpy * M / kT   # Peclet number
     args['lambda'] = L / M          # Aspect ratio
     args['tau'] = kT / (gamma * L**2)
-    args['T_star_approx'] = T_star_approx(A, Fpx, L)
+    args['T_star_approx'] = T_star_approx2(A, Fpx, L)
     
     print("\nRunning Langevin dynamics simulation...")
     print()

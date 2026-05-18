@@ -99,7 +99,7 @@ def generate_parameter_grid(args):
     kT = args.A / args.alpha
     
     # Fixed x-forcing
-    Fpx = args.epsx * args.A * args.a / args.L
+    Fpx = args.epsx * args.A / args.L
     
     gamma_vals = np.logspace(np.log10(args.gamma_min), 
                              np.log10(args.gamma_max), 
@@ -137,7 +137,7 @@ def generate_parameter_grid(args):
 
         for eps in eps_vals:
             # ε = F·M/(A·a)  →  F = ε·A·a/M
-            Fpy = eps * args.A * args.a / args.M
+            Fpy = eps * args.A / args.M
             
             params = {
                 'gamma': gamma,

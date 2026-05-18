@@ -95,7 +95,7 @@ def generate_parameter_grid(args):
     """
     Generate (α, εy) parameter grid with fixed shape factor.
     """
-    Fpx = args.epsx * args.A * args.a / args.L
+    Fpx = args.epsx * args.A / args.L
     alpha_vals = np.logspace(np.log10(args.alpha_min), 
                              np.log10(args.alpha_max), 
                              args.n_alpha)
@@ -134,7 +134,7 @@ def generate_parameter_grid(args):
 
         for eps in eps_vals:
             # ε = F·M/Aa  →  F = ε·Aa/M
-            Fpy = eps * args.A * args.a / args.M
+            Fpy = eps * args.A / args.M
             
             params = {
                 'alpha': alpha,
