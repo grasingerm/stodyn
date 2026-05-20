@@ -214,6 +214,7 @@ def extract_mobility_grid(results, alpha_vals, gamma_vals, epsx, L, A, a):
     
     mu_xx_grid = np.full((n_alpha, n_gamma), np.nan)
     D_xx_grid = np.full((n_alpha, n_gamma), np.nan)
+    escape_ac_grid = np.full((n_alpha, n_gamma), np.nan)
 
     for i, alpha in enumerate(alpha_vals):
         for j, gamma in enumerate(gamma_vals):
@@ -227,8 +228,11 @@ def extract_mobility_grid(results, alpha_vals, gamma_vals, epsx, L, A, a):
 
                 if 'xf' in stats and 'tf' in stats:
                     mu_xx_grid[i, j] = stats['xf'] / (stats['tf'] * Fpx) * gamma
+                
+                if 'escape_ac' in stats:
+                    escape_ac_grid[i, j] = stats['escape_ac'][1] # correlation between step n and n+1
     
-    return mu_xx_grid, D_xx_grid
+    return mu_xx_grid, D_xx_grid, escape_ac_grid
 
 
 def plot_phase_diagram(alpha_vals, gamma_vals, mu_xx_grid, study_dir, epsx, 
@@ -310,6 +314,41 @@ def plot_phase_diagram(alpha_vals, gamma_vals, mu_xx_grid, study_dir, epsx,
     
     return fig
 
+def plot_escape_ac(alpha_vals, gamma_vals, escape_ac_grid, study_dir, epsx):
+    """Create ac phase diagram plot."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    Gamma, Alpha = np.meshgrid(gamma_vals, alpha_vals)
+    
+    levels = 20
+    contour = ax.contourf(Gamma, Alpha, escape_ac_grid, 
+                          levels=levels, cmap='viridis')
+    contour_lines = ax.contour(Gamma, Alpha, escape_ac_grid, 
+                               levels=10, colors='white', 
+                               linewidths=0.5, alpha=0.5)
+    ax.clabel(contour_lines, inline=True, fontsize=8, fmt='%.3f')
+    
+    
+    # Formatting
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.set_xlabel('$\\gamma$ [damping coefficient]', fontsize=14)
+    ax.set_ylabel('$\\alpha = A / (k_B T)$ [inverse temperature]', fontsize=14)
+    ax.set_title(f'Escape autocorrelation, Fixed: $\\varepsilon_x = {epsx:.2f}$', 
+                 fontsize=16, fontweight='bold')
+    
+    ax.legend(fontsize=12, loc='upper left')
+    ax.grid(True, alpha=0.3, which='both')
+    
+    plt.tight_layout()
+    
+    study_path = Path(study_dir)
+    study_path.mkdir(parents=True, exist_ok=True)
+    output_path = study_path / f'escape_ac_phase_diagram.pdf'
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"\nSaved: {output_path}")
+    
+    return fig
 
 def plot_mobility_vs_gamma(alpha_vals, gamma_vals, mu_xx_grid, study_dir, n_slices=5):
     """
@@ -541,7 +580,7 @@ def main():
     print(f"{'='*60}\n")
     
     results = load_results(args.study_dir, alpha_vals, gamma_vals)
-    mu_xx_grid, D_xx_grid = extract_mobility_grid(
+    mu_xx_grid, D_xx_grid, escape_ac_grid = extract_mobility_grid(
         results, alpha_vals, gamma_vals, args.epsx, args.L, args.A, args.a)
     
     # Generate plots
@@ -554,6 +593,7 @@ def main():
     plot_phase_diagram(alpha_vals, gamma_vals, mu_xx_grid, args.study_dir, 
                        args.epsx, log_contours=True,
                        alpha_star_approx=alpha_star)
+    plot_escape_ac(alpha_vals, gamma_vals, escape_ac_grid, args.study_dir, args.epsx)
     plot_mobility_vs_gamma(alpha_vals, gamma_vals, mu_xx_grid, args.study_dir)
     plot_mobility_vs_alpha(alpha_vals, gamma_vals, mu_xx_grid, args.study_dir)
     plot_optimal_alpha_vs_gamma(alpha_vals, gamma_vals, mu_xx_grid, args.study_dir)
