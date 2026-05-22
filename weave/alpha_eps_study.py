@@ -59,11 +59,11 @@ def parse_arguments():
     # Simulation parameters
     parser.add_argument('--dt', type=float, default=0.001,
                        help='Time step')
-    parser.add_argument('--nsteps', type=int, default=20000,
+    parser.add_argument('--nsteps', type=int, default=200000,
                        help='Number of steps per trajectory')
     parser.add_argument('--ntrajs', type=int, default=100,
                        help='Number of trajectories')
-    parser.add_argument('--outfreq', type=int, default=1,
+    parser.add_argument('--outfreq', type=int, default=10,
                        help='Number of iterations per sample')
     parser.add_argument('--ncores', type=int, default=1,
                        help='Number of cores for parallelization')
