@@ -464,15 +464,24 @@ def langevin_simulation_parallel(params):
         run_single_trajectory_function = run_single_trajectory_EM
     
     # Run simulations in parallel
+    nsteps = params['nsteps']
+    outfreq = params['outfreq']
+    nsamples = nsteps // outfreq
+
+    t_all = np.empty(ntrajs * nsamples)
+    x_all = np.empty(ntrajs * nsamples)
+    y_all = np.empty(ntrajs * nsamples)
+    u_all = np.empty(ntrajs * nsamples)
+    v_all = np.empty(ntrajs * nsamples)
+
     with Pool(ncores) as pool:
-        results = pool.map(run_single_trajectory_function, param_list)
-    
-    # Concatenate results
-    t_all = np.concatenate([r[0] for r in results])
-    x_all = np.concatenate([r[1] for r in results])
-    y_all = np.concatenate([r[2] for r in results])
-    u_all = np.concatenate([r[3] for r in results])
-    v_all = np.concatenate([r[4] for r in results])
+        for i, (t_i, x_i, y_i, u_i, v_i) in enumerate(pool.imap_unordered(run_single_trajectory_function, params)):
+            s, e = i * nsamples, (i+1) * nsamples
+            t_all[s:e] = t_i
+            x_all[s:e] = x_i
+            y_all[s:e] = y_i
+            u_all[s:e] = u_i
+            v_all[s:e] = v_i
     
     print(f"Parallel simulation complete!")
     
