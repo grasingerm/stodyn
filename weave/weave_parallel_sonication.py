@@ -229,7 +229,7 @@ def identify_escape_events(x, y, t, ntrajs, nsteps, L, M):
             escape_events.append({
                 'traj_idx': int(traj_idx),
                 'time_idx': int(i),
-                'time': float(t[traj_idx * nsteps + i]),
+                'time': float(t[traj_idx * saved_steps + i]),
                 'dx': dx,
                 'dy': dy,
                 'direction_vector': [dx, dy],

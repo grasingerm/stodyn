@@ -274,7 +274,7 @@ def run_params(local_args):
     outdir = get_output_dir(args.study_dir, dP, omega)
     stats_file = outdir / 'stats.json'
 
-    print(f"[{i+1}/{n}] dP={dP:.4f}, omega={omega:.4f}")
+    print(f"[{i+1}/{n}] dP={dP:.4f}, omega={omega:.4f}", flush=True)
 
     if args.skip_existing and stats_file.exists():
         return np.array([0, 1, 0])
