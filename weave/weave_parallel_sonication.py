@@ -199,8 +199,10 @@ def identify_escape_events(x, y, t, ntrajs, nsteps, L, M):
     escape_events : list of dicts
         Each dict: {'time': t, 'direction': (dx, dy), 'angle': theta}
     """
-    x_trajs = x.reshape(ntrajs, nsteps)
-    y_trajs = y.reshape(ntrajs, nsteps)
+    saved_steps = len(x) // ntrajs
+
+    x_trajs = x.reshape(ntrajs, saved_steps)
+    y_trajs = y.reshape(ntrajs, saved_steps)
     
     escape_events = []
     
@@ -218,7 +220,7 @@ def identify_escape_events(x, y, t, ntrajs, nsteps, L, M):
         # Find when valley changes (escape event!)
         prev_x = valley_x[0]
         prev_y = valley_y[0]
-        for i in range(1, nsteps):
+        for i in range(1, saved_steps):
             if valley_x[i] == prev_x or valley_y[i] == prev_y:
                 continue
             dx = int(valley_x[i] - prev_x)
