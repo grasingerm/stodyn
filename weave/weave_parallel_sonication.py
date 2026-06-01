@@ -905,7 +905,7 @@ if __name__ == "__main__":
     nsamples = nsteps // args['outfreq']
     dt = args['dt']
     print('Identifying escape events...')
-    escape_events = identify_escape_events(x, y, t, ntrajs, nsteps, L, M)
+    escape_events = identify_escape_events(x, y, t, ntrajs, nsamples, L, M)
     if args['print_escapes']:
         pprint(escape_events)
         print()
