@@ -147,7 +147,8 @@ def study_verify(outdir):
 
 
 def study_coarsen(outdir):
-    ms = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0])
+    ms = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0])
+    loop_ms = (1.0, 2.0, 4.0, 8.0, 16.0)
     dc, amp, Ps, d0 = [], [], [], []
     loops = {}
     for m in ms:
@@ -155,7 +156,7 @@ def study_coarsen(outdir):
         dc.append(met["dc"]); amp.append(met["amp"])
         Ps.append(static_Pz(1.0, args))
         d0.append((static_Pz(1.001, args) - static_Pz(0.999, args)) / 0.002)
-        if m in (1.0, 2.0, 4.0, 8.0):
+        if m in loop_ms:
             _, P, L = steady_slice(res, args.omega, ts)
             loops[m] = (L, P)
     dc, amp, Ps, d0 = map(np.array, (dc, amp, Ps, d0))
@@ -177,10 +178,13 @@ def study_coarsen(outdir):
     ax[1].set(xlabel="coarsening $m$", ylabel=r"$P_z$ measures",
               title="(b) spontaneous, static & dynamic all grow")
     ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
-    # (c) hysteresis loops shifting off-axis
+    # (c) hysteresis loops shifting off-axis (colour by log m so m=16 is distinct)
+    lm = np.log2(np.array(loop_ms))
     for m in sorted(loops):
         L, P = loops[m]
-        ax[2].plot(L, P, color=plt.cm.autumn(1 - m / 9), lw=1.6, label=f"m={m:.0f}")
+        frac = (np.log2(m) - lm.min()) / (lm.max() - lm.min() + 1e-9)
+        ax[2].plot(L, P, color=plt.cm.plasma(0.12 + 0.75 * frac), lw=1.6,
+                   label=f"m={m:.0f}")
     ax[2].axhline(0, color="#bbb", lw=0.8)
     ax[2].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
               title="(c) loops shift off-axis (spontaneous $P$)")
@@ -310,11 +314,12 @@ def study_headtohead(outdir, omegas=(0.5, 1.0)):
             x = x - x.mean(); return x / (np.abs(x).max() + 1e-30)
         n = min(len(tQ), int(3 * 2 * np.pi / w / (tQ[1] - tQ[0])))
         t0 = tQ[:n] - tQ[0]
-        ax[2].plot(t0, norm(LQ[:n]), color="#444", lw=1.6, label=r"drive $\lambda$")
         ax[2].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.8, label=r"quadrupole $P_z$")
         nC = min(len(tC), n)
         ax[2].plot(tC[:nC] - tC[0], norm(PC[:nC]), color=C_COARSE, lw=1.8,
                    label=r"coarsening $P_z$")
+        ax[2].plot(t0, norm(LQ[:n]), color="#111", lw=1.8, ls=(0, (5, 3)),
+                   label=r"drive $\lambda$", zorder=6)     # dashed, drawn on top
         ax[2].set(xlabel="t (steady state)", ylabel="normalized",
                   title="(c) phase vs drive")
         ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
