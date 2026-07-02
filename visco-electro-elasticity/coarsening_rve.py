@@ -340,8 +340,8 @@ def build_parser():
     p.add_argument("--V0", type=float, default=None,
                    help="RVE volume (default: cube volume from n,b)")
     p.add_argument("--tau", type=float, default=1.0, help="reference relaxation time")
-    p.add_argument("--lam0", type=float, default=1.5, help="mean stretch")
-    p.add_argument("--A", type=float, default=0.3, help="stretch amplitude (A<lam0)")
+    p.add_argument("--lam0", type=float, default=1.0, help="mean stretch")
+    p.add_argument("--A", type=float, default=0.5, help="stretch amplitude (A<lam0)")
     p.add_argument("--omega", type=float, default=0.5, help="drive angular frequency")
     p.add_argument("--dt", type=float, default=0.01, help="time step")
     p.add_argument("--periods", type=float, default=8.0, help="number of drive periods")
