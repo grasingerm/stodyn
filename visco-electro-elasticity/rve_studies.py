@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""
 Morphological-design studies for the segmental-coarsening / longitudinal-
-quadrupole RVE.  Builds on coarsening_rve.py and produces the figures for the
+sluggish RVE.  Builds on coarsening_rve.py and produces the figures for the
 numerical section:
 
   verify       : m=1,d=1 null  +  m=1 drag sweep  -> recovers M1 ~ (d-1)
@@ -11,9 +11,9 @@ numerical section:
                  (independent of eq-frac); only the pure fluid removes it, at
                  the cost of all equilibrium shear stiffness
   quad         : drag sweep at m=1 (solid) -> static null held, AC grows with d
-  freq         : frequency sweep for coarsening vs quadrupole -> DC flat in w
+  freq         : frequency sweep for coarsening vs sluggish -> DC flat in w
                  (static) cleanly separates from the AC loss peak at w*tau~1
-  headtohead   : coarsening vs quadrupole at matched tau_top and drive
+  headtohead   : coarsening vs sluggish at matched tau_top and drive
                  (off-axis vs centred Lissajous; the paper's key panel)
 
 Steady-state statistics discard a settling window and average over an integer
@@ -34,7 +34,7 @@ from coarsening_rve import build_parser, simulate, build_rve
 
 # ----- consistent palette -----
 C_COARSE = "#c1121f"   # coarsening / stiffness asymmetry
-C_QUAD = "#0353a4"     # quadrupole / drag asymmetry
+C_QUAD = "#0353a4"     # sluggish / drag asymmetry
 C_DC = "#1f1f1f"
 C_IN = "#2a9d8f"
 C_OUT = "#e76f51"
@@ -142,7 +142,7 @@ def study_verify(outdir):
     fig.suptitle(f"Verification — symmetric null $\\langle P_z\\rangle$ "
                  f"= {met0['dc']:.1e},  AC = {met0['amp']:.1e}", fontsize=10)
     fig.tight_layout()
-    p = f"{outdir}/fig_verify.png"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_verify.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p, met0
 
 
@@ -190,7 +190,7 @@ def study_coarsen(outdir):
               title="(c) loops shift off-axis (spontaneous $P$)")
     ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
     fig.tight_layout()
-    p = f"{outdir}/fig_coarsening.png"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_coarsening.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p
 
 
@@ -221,7 +221,7 @@ def study_incompat(outdir):
               title="the same knob sets the modulus")
     ax[1].grid(alpha=0.3)
     fig.tight_layout()
-    p = f"{outdir}/fig_incompatibility.png"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_incompatibility.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p
 
 
@@ -244,10 +244,10 @@ def study_quad(outdir):
     ax[1].set(xlabel="drag factor $d$", ylabel="AC $P_z$",
               title="(b) viscopiezoelectric response grows with $d$")
     ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
-    fig.suptitle("Longitudinal quadrupole: solid + centrosymmetric + "
+    fig.suptitle("Longitudinal sluggish: solid + centrosymmetric + "
                  "nonzero viscopiezoelectricity", fontsize=10)
     fig.tight_layout()
-    p = f"{outdir}/fig_quadrupole.png"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_sluggish.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p
 
 
@@ -261,13 +261,13 @@ def study_freq(outdir):
             dc.append(met["dc"]); ain.append(met["a_in"]); aout.append(met["a_out"])
         return map(np.array, (dc, ain, aout))
     c_dc, c_in, c_out = sweep(4.0, 1.0)       # coarsening
-    q_dc, q_in, q_out = sweep(1.0, 4.0)       # quadrupole
+    q_dc, q_in, q_out = sweep(1.0, 4.0)       # sluggish
     tau_top = 4.0
 
     fig, ax = plt.subplots(1, 2, figsize=(12, 4.5), sharex=True)
     for a, (dc, ain, aout, ttl, cc) in zip(
             ax, [(c_dc, c_in, c_out, "Coarsening (m=4)", C_COARSE),
-                 (q_dc, q_in, q_out, "Quadrupole (m=1, d=4)", C_QUAD)]):
+                 (q_dc, q_in, q_out, "sluggish (m=1, d=4)", C_QUAD)]):
         a.axhline(0, color="#bbb", lw=0.8)
         a.semilogx(ws, dc, "o-", color=C_DC, label=r"DC (static)")
         a.semilogx(ws, np.abs(ain), "^-", color=C_IN, label=r"$|a_{\rm in}|$ storage")
@@ -283,7 +283,7 @@ def study_freq(outdir):
                  "($a_{\\rm out}$ changes sign between $\\tau_{\\rm top}$ and "
                  "$\\tau_{\\rm bot}$)", fontsize=9.5)
     fig.tight_layout()
-    p = f"{outdir}/fig_frequency.png"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_frequency.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p
 
 
@@ -291,30 +291,30 @@ def study_headtohead(outdir, omegas=(0.5, 1.0)):
     paths = []
     for w in omegas:
         rc, ac, mc, tc = run_ss(m=4.0, drag_factor=1.0, eq_frac=1.0, omega=w)  # coarsening
-        rq, aq, mq, tq = run_ss(m=1.0, drag_factor=4.0, eq_frac=1.0, omega=w)  # quadrupole
+        rq, aq, mq, tq = run_ss(m=1.0, drag_factor=4.0, eq_frac=1.0, omega=w)  # sluggish
         tC, PC, LC = steady_slice(rc, ac.omega, tc)
         tQ, PQ, LQ = steady_slice(rq, aq.omega, tq)
 
         fig, ax = plt.subplots(1, 3, figsize=(15, 4.4))
         # (a) shared-axis Lissajous: off-axis vs centred
         ax[0].plot(LC, PC, color=C_COARSE, lw=2, label=f"coarsening (mean {mc['dc']:.3f})")
-        ax[0].plot(LQ, PQ, color=C_QUAD, lw=2, label=f"quadrupole (mean {mq['dc']:.1e})")
+        ax[0].plot(LQ, PQ, color=C_QUAD, lw=2, label=f"sluggish (mean {mq['dc']:.1e})")
         ax[0].axhline(0, color="#bbb", lw=0.8)
         ax[0].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
                   title="(a) shared axis: off-axis vs centred")
         ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-        # (b) quadrupole loop on its OWN scale (open area = dissipation)
+        # (b) sluggish loop on its OWN scale (open area = dissipation)
         ax[1].plot(LQ, PQ - PQ.mean(), color=C_QUAD, lw=2)
         ax[1].axhline(0, color="#bbb", lw=0.8)
         ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z-\langle P_z\rangle$",
-                  title="(b) quadrupole loop, own scale")
+                  title="(b) sluggish loop, own scale")
         ax[1].grid(alpha=0.3)
         # (c) normalized drive vs P_z overlay (no twin axis)
         def norm(x):
             x = x - x.mean(); return x / (np.abs(x).max() + 1e-30)
         n = min(len(tQ), int(3 * 2 * np.pi / w / (tQ[1] - tQ[0])))
         t0 = tQ[:n] - tQ[0]
-        ax[2].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.8, label=r"quadrupole $P_z$")
+        ax[2].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.8, label=r"sluggish $P_z$")
         nC = min(len(tC), n)
         ax[2].plot(tC[:nC] - tC[0], norm(PC[:nC]), color=C_COARSE, lw=1.8,
                    label=r"coarsening $P_z$")
@@ -323,11 +323,11 @@ def study_headtohead(outdir, omegas=(0.5, 1.0)):
         ax[2].set(xlabel="t (steady state)", ylabel="normalized",
                   title="(c) phase vs drive")
         ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
-        fig.suptitle(rf"Coarsening vs quadrupole — matched $\tau_{{\rm top}}=4$, "
+        fig.suptitle(rf"Coarsening vs sluggish — matched $\tau_{{\rm top}}=4$, "
                      rf"$\omega={w:g}$  ($\omega\tau_{{\rm top}}={w*4:g}$, "
                      rf"$\omega\tau_{{\rm bot}}={w:g}$)", fontsize=10)
         fig.tight_layout()
-        p = f"{outdir}/fig_headtohead_w{w:g}.png"
+        p = f"{outdir}/fig_headtohead_w{w:g}.pdf"
         fig.savefig(p, dpi=160); plt.close(fig)
         paths.append(p)
     return paths
