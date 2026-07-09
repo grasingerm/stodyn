@@ -61,7 +61,7 @@ def static_Pz(lam, args):
         args.n, args.b, args.kT, args.tau, args.m, args.drag_factor, args.corner_span)
     fv = np.array([lam ** -0.5, lam ** -0.5, lam])
     xe = X.copy()
-    xe[is_top] = X[is_top] * fv
+    xe[:] = X * fv
     xJ = (k[:, None] * xe).sum(0) / k.sum()
     return (args.mu / args.b) / V0_of(args) * (xe - xJ).sum(0)[2]
 
@@ -171,8 +171,8 @@ def study_coarsen(outdir):
               title="(a) static piezo emerges with $m$")
     ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
     # (b) spontaneous P and static coeff and AC loss
-    ax[1].plot(ms, Ps, "o-", color="#6a4c93", label=r"spontaneous $P_z(\lambda{=}1)$")
     ax[1].plot(ms, d0, "s-", color=C_COARSE, label=r"static $d^0=\partial P_z/\partial\lambda$")
+    ax[1].plot(ms, Ps, "o--", color="#6a4c93", label=r"spontaneous $P_z(\lambda{=}1)$")
     ax[1].plot(ms, np.abs(amp), "^-", color=C_OUT, label=r"AC amplitude $|P_z^{(1)}|$")
     ax[1].axhline(0, color="#bbb", lw=0.8)
     ax[1].set(xlabel="coarsening $m$", ylabel=r"$P_z$ measures",

@@ -92,8 +92,8 @@ def ends_and_velocity(t, X, is_top, lam0, A, omega):
     # x_end = F @ x reduces to an elementwise column scaling X * fv (and the
     # velocity to X * fdv). For a NON-diagonal F (e.g. simple shear, off-axis
     # loading) these two lines must become  X[is_top] @ F.T  and  X[is_top] @ Fdot.T.
-    xe[is_top] = X[is_top] * fv
-    xed[is_top] = X[is_top] * fdv
+    xe[:] = X * fv
+    xed[:] = X * fdv
     return xe, xed, lam
 
 
@@ -255,7 +255,7 @@ def plot_snapshots(res, args, path):
         lam = Lam[i]
         fv = np.array([lam ** -0.5, lam ** -0.5, lam])
         ends = X.copy()
-        ends[is_top] = X[is_top] * fv
+        ends[:] = X * fv
         for a in range(8):
             c = "#e69f00" if is_top[a] else "#2f5f98"   # top=special, bottom=ref
             ax.plot(*zip(xJ, ends[a]), color=c, lw=1.6)
@@ -367,11 +367,11 @@ def main(argv=None):
     base = os.path.join(args.outdir, args.prefix)
     write_csv(res, base + "_timeseries.csv")
     if not args.no_plots:
-        plot_timeseries(res, base + "_timeseries.png")
-        plot_snapshots(res, args, base + "_snapshots.png")
+        plot_timeseries(res, base + "_timeseries.pdf")
+        plot_snapshots(res, args, base + "_snapshots.pdf")
     print(summary(res, args))
     print(f"wrote {base}_timeseries.csv"
-          + ("" if args.no_plots else f", {base}_timeseries.png, {base}_snapshots.png"))
+          + ("" if args.no_plots else f", {base}_timeseries.pdf, {base}_snapshots.pdf"))
 
 
 if __name__ == "__main__":
