@@ -42,10 +42,14 @@ import numpy as np
 # --------------------------------------------------------------------------
 # Geometry / schedules
 # --------------------------------------------------------------------------
-def build_positions(n_wells, path_length, dim):
-    """Wells on axis 0: well 0 at (L,0,..) [START], well N-1 at origin [END]."""
+def build_positions(n_wells, path_length, dim, detour=0.0):
+    """Wells from (L,0,..) [START] to origin [END]. With detour>0 (and dim>=2) the
+    chain bows into axis 1 along a sin-arc, routing around a central obstacle."""
     C = np.zeros((n_wells, dim))
     C[:, 0] = path_length * np.linspace(1.0, 0.0, n_wells)
+    if detour != 0.0 and dim >= 2:
+        t = np.linspace(0.0, 1.0, n_wells)
+        C[:, 1] = detour * np.sin(np.pi * t)
     return C
 
 
@@ -86,6 +90,18 @@ def force(X, k, C, A, sig2):
     g = np.exp(-r2 / (2.0 * sig2)[None, :])
     coeff = -(A / sig2)[None, :] * g
     return -k * X + np.einsum("mn,mnd->md", coeff, diff)
+
+
+def obstacle_potential(X, B, xo, so2):
+    """Repulsive Gaussian bump (B>0) centered at xo."""
+    diff = X - xo
+    return B * np.exp(-np.einsum("md,md->m", diff, diff) / (2.0 * so2))
+
+
+def obstacle_force(X, B, xo, so2):
+    diff = X - xo
+    g = np.exp(-np.einsum("md,md->m", diff, diff) / (2.0 * so2))
+    return (B / so2) * g[:, None] * diff        # repulsive: points away from xo
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +169,7 @@ DEFAULTS = dict(
     k_perp_base=0.15, k_perp_gate=3.0, gate_width=None, gate_frac=0.22,
     k_perp_start=0.15, k_perp_end=3.0,
     force=0.0,
+    obstacle=0.0, obstacle_width=None, obstacle_frac=0.12, detour=0.0,
     temperature=1.0, gamma=1.0, mass=1.0, dt=0.01,
     t_max=200.0, n_traj=2000, capture_radius=None, capture_frac=0.75, seed=0,
 )
@@ -162,7 +179,7 @@ def build_landscape(cfg):
     c = {**DEFAULTS, **cfg}
     if c["n_wells"] < 2:
         raise ValueError("n_wells must be >= 2")
-    C = build_positions(c["n_wells"], c["path_length"], c["dim"])
+    C = build_positions(c["n_wells"], c["path_length"], c["dim"], detour=c["detour"])
     A = build_depths(c["n_wells"], c["depth_start"], c["depth_end"],
                      c["depth_mid"], c["depth_schedule"])
     spacing = float(np.linalg.norm(C[1] - C[0]))
@@ -191,6 +208,16 @@ def build_landscape(cfg):
         base_pot = lambda X: potential_tube(X, c["k"], c0, A, sig2, kperp_fn)
     else:
         raise ValueError(f"unknown landscape: {c['landscape']}")
+
+    B = c["obstacle"]                                  # repulsive central obstacle
+    if B != 0.0:
+        xo = np.zeros(c["dim"]); xo[0] = 0.5 * c["path_length"]
+        so = (c["obstacle_width"] if c["obstacle_width"] is not None
+              else c["obstacle_frac"] * c["path_length"])
+        so2 = so * so
+        _of, _op = base_force, base_pot
+        base_force = lambda X, _f=_of, _B=B, _x=xo, _s=so2: _f(X) + obstacle_force(X, _B, _x, _s)
+        base_pot = lambda X, _p=_op, _B=B, _x=xo, _s=so2: _p(X) + obstacle_potential(X, _B, _x, _s)
 
     tilt = c["force"]                                  # uniform forward tilt along axis 0
     if tilt != 0.0:
@@ -412,6 +439,15 @@ def build_parser():
     g = p.add_argument_group("external bias")
     g.add_argument("--force", type=float, default=0.0,
                    help="constant external tilt toward the END along the transition axis")
+
+    g = p.add_argument_group("obstacle / detour")
+    g.add_argument("--obstacle", type=float, default=0.0,
+                   help="height of a repulsive Gaussian at the path midpoint (0=off)")
+    g.add_argument("--obstacle-width", type=float, default=None,
+                   help="obstacle width sigma (default: obstacle-frac * path_length)")
+    g.add_argument("--obstacle-frac", type=float, default=0.12)
+    g.add_argument("--detour", type=float, default=0.0,
+                   help="arc bulge amplitude into axis 1 (routes wells around the obstacle)")
 
     g = p.add_argument_group("dynamics")
     g.add_argument("--temperature", "-T", type=float, default=1.0)

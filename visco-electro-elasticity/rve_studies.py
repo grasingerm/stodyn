@@ -161,34 +161,34 @@ def study_coarsen(outdir):
             loops[m] = (L, P)
     dc, amp, Ps, d0 = map(np.array, (dc, amp, Ps, d0))
 
-    fig, ax = plt.subplots(1, 3, figsize=(15, 4.3))
+    fig, ax = plt.subplots(1, 2, figsize=(10, 4.3))
     # (a) DC vs m, with closed-form static overlay at lam0
-    ax[0].plot(ms, dc, "o", color=C_COARSE, ms=7, label="sim DC (steady)")
-    lam0 = _defaults().lam0
-    ax[0].plot(ms, [static_Pz(lam0, _defaults(m=float(m))) for m in ms],
-               "-", color=C_COARSE, alpha=0.6, label="equilibrium (closed form)")
-    ax[0].set(xlabel="coarsening $m$", ylabel=r"$\langle P_z\rangle$ at $\lambda_0$",
-              title="(a) static piezo emerges with $m$")
-    ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
+    #ax[0].plot(ms, dc, "o", color=C_COARSE, ms=7, label="sim DC (steady)")
+    #lam0 = _defaults().lam0
+    #ax[0].plot(ms, [static_Pz(lam0, _defaults(m=float(m))) for m in ms],
+    #           "-", color=C_COARSE, alpha=0.6, label="equilibrium (closed form)")
+    #ax[0].set(xlabel="coarsening $m$", ylabel=r"$\langle P_z\rangle$ at $\lambda_0$",
+    #          title="(a) static piezo emerges with $m$")
+    #ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
     # (b) spontaneous P and static coeff and AC loss
-    ax[1].plot(ms, d0, "s-", color=C_COARSE, label=r"static $d^0=\partial P_z/\partial\lambda$")
-    ax[1].plot(ms, Ps, "o--", color="#6a4c93", label=r"spontaneous $P_z(\lambda{=}1)$")
-    ax[1].plot(ms, np.abs(amp), "^-", color=C_OUT, label=r"AC amplitude $|P_z^{(1)}|$")
-    ax[1].axhline(0, color="#bbb", lw=0.8)
-    ax[1].set(xlabel="coarsening $m$", ylabel=r"$P_z$ measures",
-              title="(b) spontaneous, static & dynamic all grow")
-    ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
+    ax[0].plot(ms, d0, "s-", color=C_COARSE, label=r"static $d^0=\partial P_z/\partial\lambda$")
+    ax[0].plot(ms, Ps, "o--", color="#6a4c93", label=r"spontaneous $P_z(\lambda{=}1)$")
+    ax[0].plot(ms, np.abs(amp), "^-", color=C_OUT, label=r"AC amplitude $|P_z^{(1)}|$")
+    ax[0].axhline(0, color="#bbb", lw=0.8)
+    ax[0].set(xlabel="coarsening $m$", ylabel=r"$P_z$ measures",
+              title="(a) spontaneous, static & dynamic all grow")
+    ax[0].legend(fontsize=8); ax[1].grid(alpha=0.3)
     # (c) hysteresis loops shifting off-axis (colour by log m so m=16 is distinct)
     lm = np.log2(np.array(loop_ms))
     for m in sorted(loops):
         L, P = loops[m]
         frac = (np.log2(m) - lm.min()) / (lm.max() - lm.min() + 1e-9)
-        ax[2].plot(L, P, color=plt.cm.plasma(0.12 + 0.75 * frac), lw=1.6,
+        ax[1].plot(L, P, color=plt.cm.plasma(0.12 + 0.75 * frac), lw=1.6,
                    label=f"m={m:.0f}")
-    ax[2].axhline(0, color="#bbb", lw=0.8)
-    ax[2].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
-              title="(c) loops shift off-axis (spontaneous $P$)")
-    ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
+    ax[1].axhline(0, color="#bbb", lw=0.8)
+    ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
+              title="(b) loops shift off-axis (spontaneous $P$)")
+    ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
     fig.tight_layout()
     p = f"{outdir}/fig_coarsening.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
     return p
