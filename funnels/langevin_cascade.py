@@ -53,7 +53,11 @@ def build_positions(n_wells, path_length, dim, detour=0.0):
     return C
 
 
-def build_depths(n_wells, A_start, A_end, A_mid, schedule):
+def build_depths(n_wells, A_start, A_end, A_mid, schedule, depth_step=0.5):
+    if schedule == "staircase":
+        # constant per-step drop: each well deeper than the last by depth_step,
+        # so total drop grows with N and the per-barrier forward bias is fixed.
+        return A_start + depth_step * np.arange(n_wells)
     A = np.empty(n_wells)
     A[0] = A_start
     A[-1] = A_end
@@ -164,7 +168,7 @@ def force_tube(X, k_par, c0, A, sig2, kperp_fn):
 DEFAULTS = dict(
     landscape="isotropic",
     n_wells=4, dim=2, k=1.0, path_length=6.0,
-    depth_start=3.0, depth_end=8.0, depth_mid=3.0, depth_schedule="linear",
+    depth_start=3.0, depth_end=8.0, depth_mid=3.0, depth_schedule="linear", depth_step=0.5,
     sigma=None, sigma_frac=0.40,
     k_perp_base=0.15, k_perp_gate=3.0, gate_width=None, gate_frac=0.22,
     k_perp_start=0.15, k_perp_end=3.0,
@@ -181,7 +185,7 @@ def build_landscape(cfg):
         raise ValueError("n_wells must be >= 2")
     C = build_positions(c["n_wells"], c["path_length"], c["dim"], detour=c["detour"])
     A = build_depths(c["n_wells"], c["depth_start"], c["depth_end"],
-                     c["depth_mid"], c["depth_schedule"])
+                     c["depth_mid"], c["depth_schedule"], c["depth_step"])
     spacing = float(np.linalg.norm(C[1] - C[0]))
     sigma = c["sigma"] if c["sigma"] is not None else c["sigma_frac"] * spacing
     sig2 = np.full(c["n_wells"], sigma * sigma)
@@ -419,7 +423,9 @@ def build_parser():
     g.add_argument("--depth-end", type=float, default=8.0)
     g.add_argument("--depth-mid", type=float, default=3.0)
     g.add_argument("--depth-schedule", default="linear",
-                   choices=["constant", "linear", "geometric", "quadratic"])
+                   choices=["constant","linear","geometric","quadratic","staircase"])
+    g.add_argument("--depth-step", type=float, default=0.5,
+                   help="[staircase] per-well depth increment (fixed per-barrier bias)")
     g.add_argument("--sigma", type=float, default=None)
     g.add_argument("--sigma-frac", type=float, default=0.40)
 

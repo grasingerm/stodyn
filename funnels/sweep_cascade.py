@@ -103,7 +103,11 @@ def capture_radius_for_mass(cfg, p):
     elif c["landscape"] == "funnel":
         curv = c["k_perp_end"]                            # narrow END basin
     else:
-        curv = c["k"] + c["depth_end"] / (sigma * sigma)  # END-well curvature
+        if c["depth_schedule"] == "staircase":
+            a_end = c["depth_start"] + c["depth_step"] * (c["n_wells"] - 1)
+        else:
+            a_end = c["depth_end"]
+        curv = c["k"] + a_end / (sigma * sigma)           # END-well curvature
     s2 = c["temperature"] / curv                          # per-mode variance
     chi2_ppf = 2.0 * gammaincinv(c["dim"] / 2.0, p)       # chi-square quantile
     return float(np.sqrt(s2 * chi2_ppf))
