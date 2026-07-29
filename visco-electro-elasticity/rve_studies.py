@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""
 Morphological-design studies for the segmental-coarsening / longitudinal-
-sluggish RVE.  Builds on coarsening_rve.py and produces the figures for the
+quadrupole RVE.  Builds on coarsening_rve.py and produces the figures for the
 numerical section:
 
   verify       : m=1,d=1 null  +  m=1 drag sweep  -> recovers M1 ~ (d-1)
@@ -11,9 +11,9 @@ numerical section:
                  (independent of eq-frac); only the pure fluid removes it, at
                  the cost of all equilibrium shear stiffness
   quad         : drag sweep at m=1 (solid) -> static null held, AC grows with d
-  freq         : frequency sweep for coarsening vs sluggish -> DC flat in w
+  freq         : frequency sweep for coarsening vs quadrupole -> DC flat in w
                  (static) cleanly separates from the AC loss peak at w*tau~1
-  headtohead   : coarsening vs sluggish at matched tau_top and drive
+  headtohead   : coarsening vs quadrupole at matched tau_top and drive
                  (off-axis vs centred Lissajous; the paper's key panel)
 
 Steady-state statistics discard a settling window and average over an integer
@@ -33,8 +33,24 @@ import matplotlib.pyplot as plt
 from coarsening_rve import build_parser, simulate, build_rve
 
 # ----- consistent palette -----
+EXT = "pdf"            # default figure format (vector, for publication)
+
+plt.rcParams.update({
+    "font.size": 10,
+    "axes.labelsize": 11,
+    "axes.titlesize": 11,
+    "legend.fontsize": 9,
+    "xtick.labelsize": 9.5,
+    "ytick.labelsize": 9.5,
+    "axes.linewidth": 0.8,
+    "figure.dpi": 160,
+    "savefig.bbox": "tight",
+    "pdf.fonttype": 42,          # embed TrueType (editable in Illustrator)
+    "ps.fonttype": 42,
+})
+
 C_COARSE = "#c1121f"   # coarsening / stiffness asymmetry
-C_QUAD = "#0353a4"     # sluggish / drag asymmetry
+C_QUAD = "#0353a4"     # quadrupole / drag asymmetry
 C_DC = "#1f1f1f"
 C_IN = "#2a9d8f"
 C_OUT = "#e76f51"
@@ -60,8 +76,7 @@ def static_Pz(lam, args):
     X, is_top, k, tau, r_e, k_ref = build_rve(
         args.n, args.b, args.kT, args.tau, args.m, args.drag_factor, args.corner_span)
     fv = np.array([lam ** -0.5, lam ** -0.5, lam])
-    xe = X.copy()
-    xe[:] = X * fv
+    xe = X * fv
     xJ = (k[:, None] * xe).sum(0) / k.sum()
     return (args.mu / args.b) / V0_of(args) * (xe - xJ).sum(0)[2]
 
@@ -105,230 +120,266 @@ def run_ss(measure_periods=8, **over):
     return res, args, met, t_settle
 
 
+def P_star_of(args):
+    """Geometric polarization scale P* = 4 mu r_e / (sqrt3 b V0).
+    All polarization data are reported as P_z/P*, which is O(1) and independent
+    of the arbitrary choices of mu, b, n and V0."""
+    r_e = args.b * np.sqrt(args.n)
+    return 4.0 * args.mu * r_e / (np.sqrt(3.0) * args.b * V0_of(args))
+
+
+def panel(ax, letter):
+    """Bold panel label in the axes corner (titles belong in the caption)."""
+    ax.text(0.025, 0.975, f"({letter})", transform=ax.transAxes,
+            va="top", ha="left", fontweight="bold")
+
+
+def style(ax):
+    ax.grid(alpha=0.18, lw=0.6)
+    ax.set_axisbelow(True)
+    ax.tick_params(direction="in", top=True, right=True)
+
+
+def dump(outdir, name, header, cols):
+    """Write the plotted data alongside the figure (regenerability)."""
+    np.savetxt(f"{outdir}/data_{name}.csv", np.column_stack(cols),
+               delimiter=",", header=",".join(header), comments="")
+
+
 # ---------------------------------------------------------------- studies
 def study_verify(outdir):
-    # full-symmetry null
+    Ps = P_star_of(_defaults())
     _, _, met0, _ = run_ss(m=1.0, drag_factor=1.0, eq_frac=1.0)
-    # (a) drag sweep at m=1 (solid): static null held, AC amplitude turns on
     ds = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0])
     dc, amp = [], []
     for d in ds:
         _, _, met, _ = run_ss(m=1.0, drag_factor=float(d), eq_frac=1.0)
-        dc.append(met["dc"]); amp.append(met["amp"])
+        dc.append(met["dc"] / Ps); amp.append(met["amp"] / Ps)
     dc, amp = map(np.array, (dc, amp))
-    # (b) LOW-frequency loss vs (d-1): recovers M1 ~ (d-1)  [a_out ~ w(tau_top-tau_bot)]
     wlo = 0.04
     dd = np.array([1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0])
     aout_lo = []
     for d in dd:
         _, _, met, _ = run_ss(m=1.0, drag_factor=float(d), eq_frac=1.0, omega=wlo)
-        aout_lo.append(abs(met["a_out"]))
-    aout_lo = np.array(aout_lo)
-    x = dd - 1.0
-    slope = np.dot(x, aout_lo) / np.dot(x, x)          # best-fit line through origin
+        aout_lo.append(abs(met["a_out"]) / Ps)
+    aout_lo = np.array(aout_lo); x = dd - 1.0
+    slope = np.dot(x, aout_lo) / np.dot(x, x)
+    print(f"    [verify] symmetric null |P_z|/P* = {abs(met0['dc'])/Ps:.1e}; "
+          f"low-omega fit slope = {slope:.4e}")
+    dump(outdir, "verify", ["d", "DC_over_Pstar", "AC_over_Pstar"], [ds, dc, amp])
 
-    fig, ax = plt.subplots(1, 2, figsize=(11, 4.2))
-    ax[0].axhline(0, color="#bbb", lw=0.8)
-    ax[0].plot(ds, dc, "o-", color=C_DC, label=r"static $\langle P_z\rangle$")
-    ax[0].plot(ds, amp, "s-", color=C_QUAD, label="AC amplitude")
-    ax[0].set(xlabel="drag factor $d$", ylabel=r"$P_z$",
-              title="m=1: static null held, AC turns on")
-    ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-    ax[1].plot(x, aout_lo, "s", color=C_OUT, ms=7, label=r"$|a_{\rm out}|$ (low $\omega$)")
-    ax[1].plot(x, slope * x, "--", color="#888", label=r"fit $\propto (d-1)$")
-    ax[1].set(xlabel=r"$d-1$", ylabel=rf"$|a_{{\rm out}}|$ at $\omega={wlo}$",
-              title=r"low-$\omega$ limit: $M_1^D \propto (d-1)$")
-    ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
-    fig.suptitle(f"Verification — symmetric null $\\langle P_z\\rangle$ "
-                 f"= {met0['dc']:.1e},  AC = {met0['amp']:.1e}", fontsize=10)
+    fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.1))
+    ax[0].axhline(0, color="#bbb", lw=0.6)
+    ax[0].plot(ds, dc, "o-", color=C_DC, lw=1.6, ms=4.5, label=r"static")
+    ax[0].plot(ds, amp, "s--", color=C_QUAD, lw=1.6, ms=4.5, label=r"dynamic")
+    ax[0].set(xlabel=r"drag ratio $d$", ylabel=r"$P_z/P_\star$")
+    ax[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0.10, 0.96))
+    style(ax[0]); panel(ax[0], "a")
+    ax[1].plot(x, aout_lo, "s", color=C_OUT, ms=5.5, label="simulation")
+    ax[1].plot(x, slope * x, "--", color="#666", lw=1.2, label=r"$\propto(d-1)$")
+    ax[1].set(xlabel=r"$d-1$",
+              ylabel=rf"$|a_{{\rm out}}|/P_\star$  ($\omega\tau={wlo}$)")
+    ax[1].legend(frameon=False, loc="upper left", bbox_to_anchor=(0.10, 0.96))
+    style(ax[1]); panel(ax[1], "b")
     fig.tight_layout()
-    p = f"{outdir}/fig_verify.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_verify.{EXT}"; fig.savefig(p); plt.close(fig)
     return p, met0
 
 
 def study_coarsen(outdir):
     ms = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0])
     loop_ms = (1.0, 2.0, 4.0, 8.0, 16.0)
-    dc, amp, Ps, d0 = [], [], [], []
-    loops = {}
+    Ps = P_star_of(_defaults())
+    lam0 = _defaults().lam0
+    dc, amp, stat, loops = [], [], [], {}
+    maxrel = 0.0
     for m in ms:
         res, args, met, ts = run_ss(m=float(m), drag_factor=1.0, eq_frac=1.0)
-        dc.append(met["dc"]); amp.append(met["amp"])
-        Ps.append(static_Pz(1.0, args))
-        d0.append((static_Pz(1.001, args) - static_Pz(0.999, args)) / 0.002)
+        dc.append(met["dc"] / Ps); amp.append(met["amp"] / Ps)
+        # under the affine BC the spontaneous polarization and the static
+        # coefficient coincide exactly: P_s = d0 = 2 P* chi0.  Plot one curve.
+        stat.append(static_Pz(1.0, args) / Ps)
+        cf = static_Pz(lam0, args)
+        maxrel = max(maxrel, abs(met["dc"] - cf) / max(abs(cf), 1e-30))
         if m in loop_ms:
             _, P, L = steady_slice(res, args.omega, ts)
-            loops[m] = (L, P)
-    dc, amp, Ps, d0 = map(np.array, (dc, amp, Ps, d0))
+            loops[m] = (L / 1.0, P / Ps)
+    dc, amp, stat = map(np.array, (dc, amp, stat))
+    print(f"    [coarsen] sim DC vs closed form: max rel. error = {maxrel:.1e}")
+    dump(outdir, "coarsening", ["m", "P_s_over_Pstar", "AC_over_Pstar"],
+         [ms, stat, amp])
 
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4.3))
-    # (a) DC vs m, with closed-form static overlay at lam0
-    #ax[0].plot(ms, dc, "o", color=C_COARSE, ms=7, label="sim DC (steady)")
-    #lam0 = _defaults().lam0
-    #ax[0].plot(ms, [static_Pz(lam0, _defaults(m=float(m))) for m in ms],
-    #           "-", color=C_COARSE, alpha=0.6, label="equilibrium (closed form)")
-    #ax[0].set(xlabel="coarsening $m$", ylabel=r"$\langle P_z\rangle$ at $\lambda_0$",
-    #          title="(a) static piezo emerges with $m$")
-    #ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-    # (b) spontaneous P and static coeff and AC loss
-    ax[0].plot(ms, d0, "s-", color=C_COARSE, label=r"static $d^0=\partial P_z/\partial\lambda$")
-    ax[0].plot(ms, Ps, "o--", color="#6a4c93", label=r"spontaneous $P_z(\lambda{=}1)$")
-    ax[0].plot(ms, np.abs(amp), "^-", color=C_OUT, label=r"AC amplitude $|P_z^{(1)}|$")
-    ax[0].axhline(0, color="#bbb", lw=0.8)
-    ax[0].set(xlabel="coarsening $m$", ylabel=r"$P_z$ measures",
-              title="(a) spontaneous, static & dynamic all grow")
-    ax[0].legend(fontsize=8); ax[1].grid(alpha=0.3)
-    # (c) hysteresis loops shifting off-axis (colour by log m so m=16 is distinct)
+    fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.1))
+    # (a) static (= spontaneous = d0) and dynamic measures vs m
+    ax[0].plot(ms, stat, "o-", color=C_COARSE, lw=1.6, ms=4.5,
+               label=r"static  $P_s/P_\star=d^0/P_\star$")
+    ax[0].plot(ms, amp, "^--", color=C_OUT, lw=1.6, ms=4.5,
+               label=r"dynamic  $|P_z^{(1)}|/P_\star$")
+    ax[0].axhline(0, color="#bbb", lw=0.6)
+    ax[0].set(xlabel=r"coarsening ratio $m$", ylabel=r"$P_z/P_\star$")
+    ax[0].legend(frameon=False, loc="center right")
+    style(ax[0]); panel(ax[0], "a")
+    # (b) loops
     lm = np.log2(np.array(loop_ms))
     for m in sorted(loops):
         L, P = loops[m]
         frac = (np.log2(m) - lm.min()) / (lm.max() - lm.min() + 1e-9)
-        ax[1].plot(L, P, color=plt.cm.plasma(0.12 + 0.75 * frac), lw=1.6,
-                   label=f"m={m:.0f}")
-    ax[1].axhline(0, color="#bbb", lw=0.8)
-    ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
-              title="(b) loops shift off-axis (spontaneous $P$)")
-    ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
+        ax[1].plot(L, P, color=plt.cm.plasma(0.12 + 0.72 * frac), lw=1.5,
+                   label=rf"$m={m:.0f}$")
+    ax[1].axhline(0, color="#bbb", lw=0.6)
+    ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z/P_\star$")
+    ax[1].legend(frameon=False, fontsize=8, loc="upper left",
+                 bbox_to_anchor=(0.10, 0.98))
+    style(ax[1]); panel(ax[1], "b")
     fig.tight_layout()
-    p = f"{outdir}/fig_coarsening.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_coarsening.{EXT}"; fig.savefig(p); plt.close(fig)
     return p
 
 
 def study_incompat(outdir):
-    gs = np.array([0.1, 0.25, 0.5, 1.0, 2.0, 4.0])
+    Ps = P_star_of(_defaults())
+    gs = np.array([0.1, 0.2, 0.4, 0.6, 0.8, 1.0])
     dc = []
     for g in gs:
         _, _, met, _ = run_ss(m=4.0, drag_factor=1.0, eq_frac=float(g))
-        dc.append(met["dc"])
+        dc.append(met["dc"] / Ps)
     dc = np.array(dc)
-    # pure-fluid (zero-mode) reference
     _, _, met_fluid, _ = run_ss(m=4.0, drag_factor=1.0, eq_frac=0.0)
-    # relative equilibrium shear stiffness ~ sum(keq) ~ eq_frac
-    Keq = gs  # proportional; absolute scale irrelevant to the argument
+    print(f"    [incompat] static P_z/P* varies by "
+          f"{100*(dc.max()-dc.min())/abs(dc.mean()):.2f}% over eta in [0.1,1]")
+    dump(outdir, "incompatibility", ["eta", "DC_over_Pstar"], [gs, dc])
 
-    fig, ax = plt.subplots(2, 1, figsize=(7.5, 7), sharex=True)
-    ax[0].plot(gs, dc, "o-", color=C_COARSE, label="solid: static $P_z$ (constant)")
-    ax[0].scatter([0.0], [met_fluid["dc"]], marker="x", s=70, color="#555",
-                  zorder=5, label="fluid (eq=0): zero mode, ill-posed")
-    ax[0].axhline(0, color="#bbb", lw=0.8)
-    ax[0].set(ylabel=r"static $\langle P_z\rangle$",
-              title="Coarsening: no solid operating point is centrosymmetric")
-    ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-    ax[1].plot(gs, Keq, "s-", color=C_G)
-    ax[1].scatter([0.0], [0.0], marker="x", s=70, color="#555", zorder=5)
-    ax[1].set(xlabel="equilibrium fraction (eq-frac)",
-              ylabel=r"equilibrium shear stiffness $\propto K_{\rm eq}$",
-              title="the same knob sets the modulus")
-    ax[1].grid(alpha=0.3)
+    fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.1))
+    ax[0].plot(gs, dc, "o-", color=C_COARSE, lw=1.6, ms=4.5, label="solid network")
+    ax[0].scatter([0.0], [met_fluid["dc"] / Ps], marker="x", s=55, color="#444",
+                  zorder=5, label="fluid limit")
+    ax[0].axhline(0, color="#bbb", lw=0.6)
+    ax[0].set(xlabel=r"cure fraction $\eta$", ylabel=r"static $P_z/P_\star$",
+              xlim=(-0.06, 1.06), ylim=(-0.15, 2.0))
+    ax[0].legend(frameon=False, loc="center right")
+    style(ax[0]); panel(ax[0], "a")
+    ax[1].plot(gs, gs, "s-", color=C_G, lw=1.6, ms=4.5)
+    ax[1].scatter([0.0], [0.0], marker="x", s=55, color="#444", zorder=5)
+    ax[1].set(xlabel=r"cure fraction $\eta$",
+              ylabel=r"equilibrium stiffness $K_{\rm eq}/k$",
+              xlim=(-0.06, 1.06))
+    style(ax[1]); panel(ax[1], "b")
     fig.tight_layout()
-    p = f"{outdir}/fig_incompatibility.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_incompatibility.{EXT}"; fig.savefig(p); plt.close(fig)
     return p
 
 
 def study_quad(outdir):
+    Ps = P_star_of(_defaults())
     ds = np.array([1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0])
     dc, aout, ain = [], [], []
     for d in ds:
         _, _, met, _ = run_ss(m=1.0, drag_factor=float(d), eq_frac=1.0)
-        dc.append(met["dc"]); aout.append(met["a_out"]); ain.append(met["a_in"])
+        dc.append(met["dc"] / Ps); aout.append(met["a_out"] / Ps)
+        ain.append(met["a_in"] / Ps)
     dc, aout, ain = map(np.array, (dc, aout, ain))
+    ac = np.hypot(ain, aout)
+    print(f"    [quad] max |static|/P* = {np.abs(dc).max():.2e}; "
+          f"AC/P* range {ac[ac>1e-12].min():.2e}-{ac.max():.2e}")
+    dump(outdir, "sluggish", ["d", "a_in_over_Pstar", "a_out_over_Pstar"],
+         [ds, ain, aout])
 
-    fig, ax = plt.subplots(1, 2, figsize=(11, 4.3))
-    ax[0].axhline(0, color="#bbb", lw=0.8)
-    ax[0].plot(ds, dc, "o-", color=C_DC, label=r"static $\langle P_z\rangle\approx 0$")
-    ax[0].set(xlabel="drag factor $d$", ylabel=r"static $\langle P_z\rangle$",
-              title="(a) static null preserved (matched stiffness)")
-    ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-    ax[1].plot(ds, np.abs(aout), "s-", color=C_QUAD, label=r"loss $|a_{\rm out}|$")
-    ax[1].plot(ds, np.abs(ain), "^-", color=C_IN, label=r"reactive $|a_{\rm in}|$")
-    ax[1].set(xlabel="drag factor $d$", ylabel="AC $P_z$",
-              title="(b) viscopiezoelectric response grows with $d$")
-    ax[1].legend(fontsize=8); ax[1].grid(alpha=0.3)
-    fig.suptitle("Longitudinal sluggish: solid + centrosymmetric + "
-                 "nonzero viscopiezoelectricity", fontsize=10)
+    fig, ax = plt.subplots(figsize=(3.5, 3.1))
+    ax.plot(ds, np.abs(aout), "s-", color=C_QUAD, lw=1.6, ms=4.5,
+            label=r"loss $|a_{\rm out}|$")
+    ax.plot(ds, np.abs(ain), "^--", color=C_IN, lw=1.6, ms=4.5,
+            label=r"storage $|a_{\rm in}|$")
+    ax.set(xlabel=r"drag ratio $d$", ylabel=r"AC $P_z/P_\star$")
+    ax.legend(frameon=False, loc="lower right")
+    style(ax)
     fig.tight_layout()
-    p = f"{outdir}/fig_sluggish.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_quadrupole.{EXT}"; fig.savefig(p); plt.close(fig)
     return p
 
 
 def study_freq(outdir):
-    ws = np.logspace(-1.3, 1.0, 14)           # ~0.05 .. 10
+    Ps = P_star_of(_defaults())
+    tau_b = _defaults().tau                      # reference relaxation time
+    ws = np.logspace(-1.3, 1.0, 14)
     def sweep(m, d):
         dc, ain, aout = [], [], []
         for w in ws:
             _, _, met, _ = run_ss(measure_periods=8, m=m, drag_factor=d,
                                   eq_frac=1.0, omega=float(w))
-            dc.append(met["dc"]); ain.append(met["a_in"]); aout.append(met["a_out"])
+            dc.append(met["dc"] / Ps); ain.append(met["a_in"] / Ps)
+            aout.append(met["a_out"] / Ps)
         return map(np.array, (dc, ain, aout))
-    c_dc, c_in, c_out = sweep(4.0, 1.0)       # coarsening
-    q_dc, q_in, q_out = sweep(1.0, 4.0)       # sluggish
-    tau_top = 4.0
+    c_dc, c_in, c_out = sweep(4.0, 1.0)
+    q_dc, q_in, q_out = sweep(1.0, 4.0)
+    wt = ws * tau_b                              # dimensionless drive frequency
+    dump(outdir, "frequency",
+         ["omega_tau_bot", "coars_DC", "coars_ain", "coars_aout",
+          "slug_DC", "slug_ain", "slug_aout"],
+         [wt, c_dc, c_in, c_out, q_dc, q_in, q_out])
 
-    fig, ax = plt.subplots(1, 2, figsize=(12, 4.5), sharex=True)
-    for a, (dc, ain, aout, ttl, cc) in zip(
-            ax, [(c_dc, c_in, c_out, "Coarsening (m=4)", C_COARSE),
-                 (q_dc, q_in, q_out, "sluggish (m=1, d=4)", C_QUAD)]):
-        a.axhline(0, color="#bbb", lw=0.8)
-        a.semilogx(ws, dc, "o-", color=C_DC, label=r"DC (static)")
-        a.semilogx(ws, np.abs(ain), "^-", color=C_IN, label=r"$|a_{\rm in}|$ storage")
-        a.semilogx(ws, np.abs(aout), "s-", color=C_OUT, label=r"$|a_{\rm out}|$ loss")
-        for w0, lab in [(1.0 / 4.0, r"$1/\tau_{\rm top}$"), (1.0 / 1.0, r"$1/\tau_{\rm bot}$")]:
-            a.axvline(w0, ls=":", color="#999")
-            a.text(w0, a.get_ylim()[1] * 0.92, lab, fontsize=8, ha="center")
-        a.set(xlabel=r"$\omega$", title=ttl)
-        a.legend(fontsize=8); a.grid(alpha=0.3, which="both")
-    ax[0].set(ylabel=r"$P_z$ component")
-    fig.suptitle("Frequency sweep: the static (DC) response is frequency-independent; "
-                 "the dynamic (AC) response disperses over the two branch times "
-                 "($a_{\\rm out}$ changes sign between $\\tau_{\\rm top}$ and "
-                 "$\\tau_{\\rm bot}$)", fontsize=9.5)
+    fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.2), sharex=True)
+    for a, (dc, ain, aout, lab) in zip(
+            ax, [(c_dc, c_in, c_out, "a"), (q_dc, q_in, q_out, "b")]):
+        a.axhline(0, color="#bbb", lw=0.6)
+        a.semilogx(wt, dc, "o-", color=C_DC, lw=1.6, ms=4, label="static (DC)")
+        a.semilogx(wt, np.abs(ain), "^--", color=C_IN, lw=1.6, ms=4,
+                   label=r"$|a_{\rm in}|$")
+        a.semilogx(wt, np.abs(aout), "s:", color=C_OUT, lw=1.6, ms=4,
+                   label=r"$|a_{\rm out}|$")
+        for w0 in (1.0 / 4.0, 1.0):
+            a.axvline(w0, ls=(0, (1, 3)), color="#999", lw=1.0)
+        a.set(xlabel=r"$\omega\tau_{\rm ref}$")
+        style(a); panel(a, lab)
+    ax[0].set(ylabel=r"$P_z/P_\star$")
+    ax[0].legend(frameon=False, fontsize=8, loc="center left")
+    ax[1].legend(frameon=False, fontsize=8, loc="upper left",
+                 bbox_to_anchor=(0.10, 0.96))
     fig.tight_layout()
-    p = f"{outdir}/fig_frequency.pdf"; fig.savefig(p, dpi=160); plt.close(fig)
+    p = f"{outdir}/fig_frequency.{EXT}"; fig.savefig(p); plt.close(fig)
     return p
 
 
 def study_headtohead(outdir, omegas=(0.5, 1.0)):
+    Ps = P_star_of(_defaults())
     paths = []
     for w in omegas:
-        rc, ac, mc, tc = run_ss(m=4.0, drag_factor=1.0, eq_frac=1.0, omega=w)  # coarsening
-        rq, aq, mq, tq = run_ss(m=1.0, drag_factor=4.0, eq_frac=1.0, omega=w)  # sluggish
+        rc, ac, mc, tc = run_ss(m=4.0, drag_factor=1.0, eq_frac=1.0, omega=w)
+        rq, aq, mq, tq = run_ss(m=1.0, drag_factor=4.0, eq_frac=1.0, omega=w)
         tC, PC, LC = steady_slice(rc, ac.omega, tc)
         tQ, PQ, LQ = steady_slice(rq, aq.omega, tq)
+        PC, PQ = PC / Ps, PQ / Ps
 
-        fig, ax = plt.subplots(1, 3, figsize=(15, 4.4))
-        # (a) shared-axis Lissajous: off-axis vs centred
-        ax[0].plot(LC, PC, color=C_COARSE, lw=2, label=f"coarsening (mean {mc['dc']:.3f})")
-        ax[0].plot(LQ, PQ, color=C_QUAD, lw=2, label=f"sluggish (mean {mq['dc']:.1e})")
-        ax[0].axhline(0, color="#bbb", lw=0.8)
-        ax[0].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
-                  title="(a) shared axis: off-axis vs centred")
-        ax[0].legend(fontsize=8); ax[0].grid(alpha=0.3)
-        # (b) sluggish loop on its OWN scale (open area = dissipation)
-        ax[1].plot(LQ, PQ - PQ.mean(), color=C_QUAD, lw=2)
-        ax[1].axhline(0, color="#bbb", lw=0.8)
-        ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z-\langle P_z\rangle$",
-                  title="(b) sluggish loop, own scale")
-        ax[1].grid(alpha=0.3)
-        # (c) normalized drive vs P_z overlay (no twin axis)
+        fig, ax = plt.subplots(1, 2, figsize=(7.0, 3.2))
+
         def norm(x):
             x = x - x.mean(); return x / (np.abs(x).max() + 1e-30)
         n = min(len(tQ), int(3 * 2 * np.pi / w / (tQ[1] - tQ[0])))
-        t0 = tQ[:n] - tQ[0]
-        ax[2].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.8, label=r"sluggish $P_z$")
+        t0 = (tQ[:n] - tQ[0]) / (2 * np.pi / w)          # time in drive periods
         nC = min(len(tC), n)
-        ax[2].plot(tC[:nC] - tC[0], norm(PC[:nC]), color=C_COARSE, lw=1.8,
-                   label=r"coarsening $P_z$")
-        ax[2].plot(t0, norm(LQ[:n]), color="#111", lw=1.8, ls=(0, (5, 3)),
-                   label=r"drive $\lambda$", zorder=6)     # dashed, drawn on top
-        ax[2].set(xlabel="t (steady state)", ylabel="normalized",
-                  title="(c) phase vs drive")
-        ax[2].legend(fontsize=8); ax[2].grid(alpha=0.3)
-        fig.suptitle(rf"Coarsening vs sluggish — matched $\tau_{{\rm top}}=4$, "
-                     rf"$\omega={w:g}$  ($\omega\tau_{{\rm top}}={w*4:g}$, "
-                     rf"$\omega\tau_{{\rm bot}}={w:g}$)", fontsize=10)
+        ax[0].plot(t0, norm(LQ[:n]), color="#111", lw=1.6, ls=(0, (5, 3)),
+                   label=r"drive $\lambda$", zorder=6)
+        ax[0].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.6, label="sluggish")
+        ax[0].plot((tC[:nC] - tC[0]) / (2 * np.pi / w), norm(PC[:nC]),
+                   color=C_COARSE, lw=1.6, ls=(0, (4, 1.5)), label="coarsening")
+        ax[0].set(xlabel=r"$t/T$", ylabel="normalized response",
+                  ylim=(-1.45, 1.45))
+        ax[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=3,
+                     frameon=False, columnspacing=1.2, handlelength=1.6,
+                     fontsize=8.5)
+        style(ax[0]); panel(ax[0], "a")
+
+        ax[1].plot(LC, PC, color=C_COARSE, lw=1.8, label="coarsening")
+        ax[1].plot(LQ, PQ, color=C_QUAD, lw=1.8, ls=(0, (4, 1.5)),
+                   label="sluggish")
+        ax[1].axhline(0, color="#bbb", lw=0.6)
+        ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z/P_\star$")
+        ax[1].legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=2,
+                     frameon=False, handlelength=1.6, fontsize=8.5)
+        style(ax[1]); panel(ax[1], "b")
+
         fig.tight_layout()
-        p = f"{outdir}/fig_headtohead_w{w:g}.pdf"
-        fig.savefig(p, dpi=160); plt.close(fig)
+        p = f"{outdir}/fig_headtohead_w{w:g}.{EXT}"
+        fig.savefig(p); plt.close(fig)
         paths.append(p)
     return paths
 
