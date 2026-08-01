@@ -81,27 +81,61 @@ def lam_and_dot(t, lam0, A, omega):
     return lam0 + A * np.sin(omega * t), A * omega * np.cos(omega * t)
 
 
-def ends_and_velocity(t, X, is_top, lam0, A, omega):
-    """Current end positions x_end(t) and velocities x_end'(t)."""
-    lam, lamd = lam_and_dot(t, lam0, A, omega)
-    fv = np.array([lam ** -0.5, lam ** -0.5, lam])
-    fdv = np.array([-0.5 * lam ** -1.5 * lamd, -0.5 * lam ** -1.5 * lamd, lamd])
-    xe = X.copy()
-    xed = np.zeros_like(X)
-    # Diagonal-F shortcut: for diagonal F, (F x)_i = F_ii x_i, so the affine map
-    # x_end = F @ x reduces to an elementwise column scaling X * fv (and the
-    # velocity to X * fdv). For a NON-diagonal F (e.g. simple shear, off-axis
-    # loading) these two lines must become  X[is_top] @ F.T  and  X[is_top] @ Fdot.T.
-    xe[:] = X * fv
-    xed[:] = X * fdv
-    return xe, xed, lam
+def ends_and_velocity(t, X, is_top, lam0, A, omega, load="piezo"):
+    """Current end positions x_end(t) and velocities x_end'(t).
+
+    load='piezo' : homogeneous stretch, lam(t) = lam0 + A sin(wt); the STRETCH
+                   oscillates and F is uniform over the cell.
+    load='flexo' : imposed strain GRADIENT, dlam/dX3 = g(t) = A sin(wt), so the
+                   local stretch varies linearly with reference height,
+                   lam(X3,t) = lam0 + g(t) X3, and F = diag(lam^-1/2, lam^-1/2,
+                   lam) is evaluated pointwise at each end. lam0 is the mean
+                   (reference) stretch, as in 'piezo'.
+    Third return value is the scalar drive: lam(t) for piezo, g(t) for flexo.
+    """
+    if load == "piezo":
+        lam, lamd = lam_and_dot(t, lam0, A, omega)
+        fv = np.array([lam ** -0.5, lam ** -0.5, lam])
+        fdv = np.array([-0.5 * lam ** -1.5 * lamd, -0.5 * lam ** -1.5 * lamd, lamd])
+        # Affine (Dirichlet) boundary condition: ALL ends deform, x_end = F X.
+        # (Elementwise column scaling because F is diagonal; for a non-diagonal F
+        #  use X @ F.T and X @ Fdot.T.)  Fixing a subset of ends is a non-affine
+        # BC and injects a spurious asymmetry into the polarization.
+        return X * fv, X * fdv, lam
+
+    if load == "flexo":
+        g = A * np.sin(omega * t)               # strain gradient dlam/dX3
+        gd = A * omega * np.cos(omega * t)
+        lam = lam0 + g * X[:, 2]                # (8,) local stretch per end
+        lamd = gd * X[:, 2]
+        s = lam ** -0.5
+        sd = -0.5 * lam ** -1.5 * lamd
+        xe = np.empty_like(X)
+        xed = np.empty_like(X)
+        xe[:, 0] = X[:, 0] * s
+        xe[:, 1] = X[:, 1] * s
+        xe[:, 2] = X[:, 2] * lam
+        xed[:, 0] = X[:, 0] * sd
+        xed[:, 1] = X[:, 1] * sd
+        xed[:, 2] = X[:, 2] * lamd
+        return xe, xed, g
+
+    raise ValueError(load)
 
 
 # ---------------------------------------------------------------- RHS functions
-def make_rhs(mode, X, is_top, k, keq, tau, mass, lam0, A, omega):
+def make_rhs(mode, X, is_top, k, keq, tau, mass, lam0, A, omega,
+             load="piezo", junction="free"):
     """Each chain = equilibrium spring keq (non-relaxing, force keq*r)
     in parallel with a Maxwell branch (spring k + dashpot, force k*q,
-    q' = r' - q/tau). keq = 0 -> pure Maxwell (fluid); keq > 0 -> solid."""
+    q' = r' - q/tau). keq = 0 -> pure Maxwell (fluid); keq > 0 -> solid.
+
+    junction='free'   : junction relaxes (force balance / inertia) -- physical.
+    junction='affine' : junction clamped at the affine image of the cell centre
+                        (the origin maps to the origin under both loadings).
+                        Diagnostic only: it suppresses non-affine relaxation and
+                        isolates how much of the response that relaxation removes.
+    """
     ksum = k.sum()
     Keq = keq.sum()
     kt = (k / tau)[:, None]
@@ -113,7 +147,11 @@ def make_rhs(mode, X, is_top, k, keq, tau, mass, lam0, A, omega):
         def rhs(t, y):
             xJ = y[:3]
             q = y[3:].reshape(8, 3)
-            xe, xed, _ = ends_and_velocity(t, X, is_top, lam0, A, omega)
+            xe, xed, _ = ends_and_velocity(t, X, is_top, lam0, A, omega, load)
+            if junction == "affine":           # clamped: x_J == 0 for all t
+                xJdot = np.zeros(3)
+                qdot = xed - q / taucol
+                return np.concatenate([xJdot, qdot.ravel()])
             if Keq <= 0.0:                     # pure Maxwell: junction is a zero mode
                 vJ = ((kcol * xed).sum(0) - (kt * q).sum(0)) / ksum
                 qdot = (xed - vJ) - q / taucol
@@ -132,7 +170,10 @@ def make_rhs(mode, X, is_top, k, keq, tau, mass, lam0, A, omega):
             xJ = y[:3]
             vJ = y[3:6]
             q = y[6:].reshape(8, 3)
-            xe, xed, _ = ends_and_velocity(t, X, is_top, lam0, A, omega)
+            xe, xed, _ = ends_and_velocity(t, X, is_top, lam0, A, omega, load)
+            if junction == "affine":
+                qdot = xed - q / taucol
+                return np.concatenate([np.zeros(3), np.zeros(3), qdot.ravel()])
             r = xe - xJ
             fnet = (keqcol * r).sum(0) + (kcol * q).sum(0)
             vJdot = fnet / mass
@@ -161,8 +202,13 @@ def simulate(args):
     B = args.mu / args.b
 
     # initial force-balanced junction (k-weighted centroid) + unrelaxed springs
-    xe0, _, _ = ends_and_velocity(0.0, X, is_top, args.lam0, args.A, args.omega)
-    xJ0 = (k[:, None] * xe0).sum(0) / k.sum()
+    load = getattr(args, "load", "piezo")
+    junction = getattr(args, "junction", "free")
+    xe0, _, _ = ends_and_velocity(0.0, X, is_top, args.lam0, args.A, args.omega, load)
+    if junction == "affine":
+        xJ0 = np.zeros(3)          # clamped at the affine image of the cell centre
+    else:
+        xJ0 = (k[:, None] * xe0).sum(0) / k.sum()
     q0 = xe0 - xJ0                                   # q = r  (fully elastic)
 
     if args.dynamics == "overdamped":
@@ -171,7 +217,7 @@ def simulate(args):
         y = np.concatenate([xJ0, np.zeros(3), q0.ravel()])
 
     rhs = make_rhs(args.dynamics, X, is_top, k, keq, tau, args.mass,
-                   args.lam0, args.A, args.omega)
+                   args.lam0, args.A, args.omega, load=load, junction=junction)
 
     T = 2.0 * np.pi / args.omega
     t_end = args.t_end if args.t_end is not None else args.periods * T
@@ -185,7 +231,7 @@ def simulate(args):
 
     def record(i, t, y):
         xJ = y[:3]
-        xe, _, lam = ends_and_velocity(t, X, is_top, args.lam0, args.A, args.omega)
+        xe, _, lam = ends_and_velocity(t, X, is_top, args.lam0, args.A, args.omega, load)
         r = xe - xJ
         ts[i] = t
         Lam[i] = lam
@@ -253,9 +299,8 @@ def plot_snapshots(res, args, path):
         ax = fig.add_subplot(nrow, ncol, j + 1, projection="3d")
         xJ = XJ[i]
         lam = Lam[i]
-        fv = np.array([lam ** -0.5, lam ** -0.5, lam])
-        ends = X.copy()
-        ends[:] = X * fv
+        ends, _, _ = ends_and_velocity(ts[i], X, is_top, args.lam0, args.A,
+                                       args.omega, getattr(args, "load", "piezo"))
         for a in range(8):
             c = "#e69f00" if is_top[a] else "#2f5f98"   # top=special, bottom=ref
             ax.plot(*zip(xJ, ends[a]), color=c, lw=1.6)
@@ -289,6 +334,7 @@ def summary(res, args):
         "Segmental-coarsening / quadrupole RVE summary",
         "=" * 64,
         f"  dynamics      : {args.dynamics}",
+        f"  load          : {args.load}   junction: {args.junction}",
         f"  corner_span   : {args.corner_span}",
         f"  m (coarsening): {args.m}",
         f"  drag_factor d : {args.drag_factor}   (c_top / c_ref)",
@@ -318,6 +364,15 @@ def build_parser():
                    default="overdamped",
                    help="junction equation of motion (overdamped is physical "
                         "at network scales; inertial may ring)")
+    p.add_argument("--load", choices=["piezo", "flexo"], default="piezo",
+                   help="loading protocol: 'piezo' oscillates the homogeneous "
+                        "stretch lam(t)=lam0+A sin(wt); 'flexo' oscillates the "
+                        "strain GRADIENT dlam/dX3 = A sin(wt), so the local "
+                        "stretch is lam(X3,t)=lam0+A sin(wt) X3")
+    p.add_argument("--junction", choices=["free", "affine"], default="free",
+                   help="'free' lets the junction relax (force balance/inertia); "
+                        "'affine' clamps it at the cell centre (diagnostic: "
+                        "isolates the effect of non-affine relaxation)")
     p.add_argument("--m", type=float, default=4.0, help="coarsening factor")
     p.add_argument("--drag-factor", type=float, default=1.0, dest="drag_factor",
                    help="ratio of special(top)-chain dashpot drag to reference "
@@ -340,8 +395,8 @@ def build_parser():
     p.add_argument("--V0", type=float, default=None,
                    help="RVE volume (default: cube volume from n,b)")
     p.add_argument("--tau", type=float, default=1.0, help="reference relaxation time")
-    p.add_argument("--lam0", type=float, default=1.0, help="mean stretch")
-    p.add_argument("--A", type=float, default=0.5, help="stretch amplitude (A<lam0)")
+    p.add_argument("--lam0", type=float, default=1.5, help="mean stretch")
+    p.add_argument("--A", type=float, default=0.3, help="stretch amplitude (A<lam0)")
     p.add_argument("--omega", type=float, default=0.5, help="drive angular frequency")
     p.add_argument("--dt", type=float, default=0.01, help="time step")
     p.add_argument("--periods", type=float, default=8.0, help="number of drive periods")
@@ -357,21 +412,28 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if not (args.A < args.lam0):
-        raise SystemExit(f"require A < lam0 (got A={args.A}, lam0={args.lam0})")
-    if args.lam0 - args.A <= 0:
-        raise SystemExit("lam0 - A <= 0 would give non-positive stretch")
+    if args.load == "piezo":
+        if not (args.A < args.lam0):
+            raise SystemExit(f"require A < lam0 (got A={args.A}, lam0={args.lam0})")
+    else:
+        zmax = np.abs(build_rve(args.n, args.b, args.kT, args.tau, args.m,
+                                args.drag_factor, args.corner_span)[0][:, 2]).max()
+        if args.A * zmax >= args.lam0:
+            raise SystemExit(
+                f"flexo: require A*max|X3| < lam0 so the local stretch stays "
+                f"positive (got A={args.A}, max|X3|={zmax:.3f}, "
+                f"lam0={args.lam0}); use A < {args.lam0/zmax:.4f}")
 
     res = simulate(args)
     os.makedirs(args.outdir, exist_ok=True)
     base = os.path.join(args.outdir, args.prefix)
     write_csv(res, base + "_timeseries.csv")
     if not args.no_plots:
-        plot_timeseries(res, base + "_timeseries.pdf")
-        plot_snapshots(res, args, base + "_snapshots.pdf")
+        plot_timeseries(res, base + "_timeseries.png")
+        plot_snapshots(res, args, base + "_snapshots.png")
     print(summary(res, args))
     print(f"wrote {base}_timeseries.csv"
-          + ("" if args.no_plots else f", {base}_timeseries.pdf, {base}_snapshots.pdf"))
+          + ("" if args.no_plots else f", {base}_timeseries.png, {base}_snapshots.png"))
 
 
 if __name__ == "__main__":

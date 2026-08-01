@@ -135,7 +135,6 @@ def panel(ax, letter):
 
 
 def style(ax):
-    ax.grid(alpha=0.18, lw=0.6)
     ax.set_axisbelow(True)
     ax.tick_params(direction="in", top=True, right=True)
 
@@ -173,7 +172,7 @@ def study_verify(outdir):
     ax[0].plot(ds, dc, "o-", color=C_DC, lw=1.6, ms=4.5, label=r"static")
     ax[0].plot(ds, amp, "s--", color=C_QUAD, lw=1.6, ms=4.5, label=r"dynamic")
     ax[0].set(xlabel=r"drag ratio $d$", ylabel=r"$P_z/P_\star$")
-    ax[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0.10, 0.96))
+    ax[0].legend(frameon=False, loc="center right")
     style(ax[0]); panel(ax[0], "a")
     ax[1].plot(x, aout_lo, "s", color=C_OUT, ms=5.5, label="simulation")
     ax[1].plot(x, slope * x, "--", color="#666", lw=1.2, label=r"$\propto(d-1)$")
@@ -217,7 +216,7 @@ def study_coarsen(outdir):
                label=r"dynamic  $|P_z^{(1)}|/P_\star$")
     ax[0].axhline(0, color="#bbb", lw=0.6)
     ax[0].set(xlabel=r"coarsening ratio $m$", ylabel=r"$P_z/P_\star$")
-    ax[0].legend(frameon=False, loc="center right")
+    ax[0].legend(frameon=False, loc="lower right")
     style(ax[0]); panel(ax[0], "a")
     # (b) loops
     lm = np.log2(np.array(loop_ms))
@@ -228,8 +227,9 @@ def study_coarsen(outdir):
                    label=rf"$m={m:.0f}$")
     ax[1].axhline(0, color="#bbb", lw=0.6)
     ax[1].set(xlabel=r"$\lambda$", ylabel=r"$P_z/P_\star$")
-    ax[1].legend(frameon=False, fontsize=8, loc="upper left",
-                 bbox_to_anchor=(0.10, 0.98))
+    ax[1].legend(frameon=False, fontsize=8, loc="lower center",
+                 bbox_to_anchor=(0.5, 1.00), ncol=5, columnspacing=0.9,
+                 handlelength=1.3, handletextpad=0.4)
     style(ax[1]); panel(ax[1], "b")
     fig.tight_layout()
     p = f"{outdir}/fig_coarsening.{EXT}"; fig.savefig(p); plt.close(fig)
@@ -331,9 +331,8 @@ def study_freq(outdir):
         a.set(xlabel=r"$\omega\tau_{\rm ref}$")
         style(a); panel(a, lab)
     ax[0].set(ylabel=r"$P_z/P_\star$")
-    ax[0].legend(frameon=False, fontsize=8, loc="center left")
-    ax[1].legend(frameon=False, fontsize=8, loc="upper left",
-                 bbox_to_anchor=(0.10, 0.96))
+    ax[0].legend(frameon=False, fontsize=8, loc="center right")
+    ax[1].legend(frameon=False, fontsize=8, loc="upper right")
     fig.tight_layout()
     p = f"{outdir}/fig_frequency.{EXT}"; fig.savefig(p); plt.close(fig)
     return p
@@ -356,11 +355,14 @@ def study_headtohead(outdir, omegas=(0.5, 1.0)):
         n = min(len(tQ), int(3 * 2 * np.pi / w / (tQ[1] - tQ[0])))
         t0 = (tQ[:n] - tQ[0]) / (2 * np.pi / w)          # time in drive periods
         nC = min(len(tC), n)
-        ax[0].plot(t0, norm(LQ[:n]), color="#111", lw=1.6, ls=(0, (5, 3)),
-                   label=r"drive $\lambda$", zorder=6)
-        ax[0].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.6, label="sluggish")
+        # consistent across panels: coarsening = solid, sluggish = dashed.
+        # Plot order matches panel (b) so the legends read the same.
         ax[0].plot((tC[:nC] - tC[0]) / (2 * np.pi / w), norm(PC[:nC]),
-                   color=C_COARSE, lw=1.6, ls=(0, (4, 1.5)), label="coarsening")
+                   color=C_COARSE, lw=1.6, ls="-", label="coarsening")
+        ax[0].plot(t0, norm(PQ[:n]), color=C_QUAD, lw=1.6, ls=(0, (4, 1.5)),
+                   label="sluggish")
+        ax[0].plot(t0, norm(LQ[:n]), color="#111", lw=1.4, ls=(0, (1, 2)),
+                   label=r"drive $\lambda$", zorder=6)
         ax[0].set(xlabel=r"$t/T$", ylabel="normalized response",
                   ylim=(-1.45, 1.45))
         ax[0].legend(loc="lower center", bbox_to_anchor=(0.5, 1.02), ncol=3,
