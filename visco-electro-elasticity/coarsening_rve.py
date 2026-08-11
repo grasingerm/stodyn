@@ -57,6 +57,48 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 
+# ----- publication style, matched to rve_studies.py -----
+EXT = "pdf"            # default figure format (vector)
+
+plt.rcParams.update({
+    "font.size": 10,
+    "axes.labelsize": 11,
+    "axes.titlesize": 11,
+    "legend.fontsize": 9,
+    "xtick.labelsize": 9.5,
+    "ytick.labelsize": 9.5,
+    "axes.linewidth": 0.8,
+    "figure.dpi": 160,
+    "savefig.bbox": "tight",
+    "pdf.fonttype": 42,          # embed TrueType (editable in Illustrator)
+    "ps.fonttype": 42,
+})
+
+C_COARSE = "#c1121f"   # coarsening / stiffness asymmetry
+C_QUAD = "#0353a4"     # sluggish / drag asymmetry
+C_DC = "#1f1f1f"
+C_IN = "#2a9d8f"
+C_OUT = "#e76f51"
+C_G = "#8d99ae"
+
+
+def P_star_of(args, r_e):
+    """Geometric polarization scale P* = 4 mu r_e / (sqrt3 b V0); see rve_studies."""
+    V0 = args.V0 if args.V0 is not None else (2.0 * args.b * np.sqrt(args.n / 3.0)) ** 3
+    return 4.0 * args.mu * r_e / (np.sqrt(3.0) * args.b * V0)
+
+
+def panel(ax, letter):
+    """Bold panel label in the axes corner (titles belong in the caption)."""
+    ax.text(0.025, 0.975, f"({letter})", transform=ax.transAxes,
+            va="top", ha="left", fontweight="bold")
+
+
+def style(ax):
+    ax.set_axisbelow(True)
+    ax.tick_params(direction="in", top=True, right=True)
+
+
 # ---------------------------------------------------------------- RVE & driving
 def build_rve(n, b, kT, tau_ref, m, drag_factor=1.0, corner_span="cube"):
     r_e = b * np.sqrt(n)
@@ -258,62 +300,85 @@ def write_csv(res, path):
     np.savetxt(path, data, delimiter=",", header=",".join(head), comments="")
 
 
-def plot_timeseries(res, path):
+def plot_timeseries(res, args, path):
+    """Steady-state trajectory. Polarization is normalized by P*, positions by
+    the reference rms end-to-end length r_e (the cell edge is 2 r_e / sqrt3),
+    and time by the drive period T."""
     ts, Lam, XJ, P = res["ts"], res["Lam"], res["XJ"], res["P"]
-    fig, ax = plt.subplots(2, 2, figsize=(11, 7))
-    ax[0, 0].plot(ts, Lam, color="#444")
-    ax[0, 0].set(xlabel="t", ylabel=r"$\lambda(t)$", title="drive")
-    ax[0, 1].plot(ts, P[:, 2], color="#3b3b8f")
-    ax[0, 1].axhline(P[:, 2].mean(), ls="--", lw=1, color="#cc6677",
-                     label=f"mean = {P[:,2].mean():.3g}")
-    ax[0, 1].set(xlabel="t", ylabel=r"$P_z(t)$", title="polarization")
-    ax[0, 1].legend(fontsize=8)
-    ax[1, 0].plot(ts, XJ[:, 2], color="#117733")
-    ax[1, 0].set(xlabel="t", ylabel=r"$x_{J,z}(t)$", title="junction")
+    Ps = P_star_of(args, res["r_e"])
+    r_e = res["r_e"]
+    tau = ts / res["T"]                              # time in drive periods
+    Pn = P[:, 2] / Ps
+    xn = XJ[:, 2] / r_e
+
+    fig, ax = plt.subplots(2, 2, figsize=(7.0, 5.0))
+    ax[0, 0].plot(tau, Lam, color=C_DC, lw=1.6)
+    ax[0, 0].set(xlabel=r"$t/T$", ylabel=r"$\lambda$")
+    style(ax[0, 0]); panel(ax[0, 0], "a")
+
+    ax[0, 1].plot(tau, Pn, color=C_COARSE, lw=1.6)
+    ax[0, 1].axhline(Pn[len(Pn) // 2:].mean(), ls=(0, (4, 2)), lw=1.1, color=C_G)
+    ax[0, 1].set(xlabel=r"$t/T$", ylabel=r"$P_3/P_\star$")
+    style(ax[0, 1]); panel(ax[0, 1], "b")
+
+    ax[1, 0].plot(tau, xn, color=C_QUAD, lw=1.6)
+    ax[1, 0].axhline(0.0, color="#bbb", lw=0.6)
+    ax[1, 0].set(xlabel=r"$t/T$", ylabel=r"$x_{J,3}/r_e$")
+    style(ax[1, 0]); panel(ax[1, 0], "c")
+
     half = len(ts) // 2                              # last half -> steady cycle
-    ax[1, 1].plot(Lam[half:], P[half:, 2], color="#882255")
-    ax[1, 1].set(xlabel=r"$\lambda$", ylabel=r"$P_z$",
-                 title="Lissajous (open loop = phase lag)")
-    for a in ax.ravel():
-        a.grid(alpha=0.3)
+    ax[1, 1].plot(Lam[half:], Pn[half:], color=C_COARSE, lw=1.6)
+    ax[1, 1].axhline(0.0, color="#bbb", lw=0.6)
+    ax[1, 1].set(xlabel=r"$\lambda$", ylabel=r"$P_3/P_\star$")
+    style(ax[1, 1]); panel(ax[1, 1], "d")
+
     fig.tight_layout()
-    fig.savefig(path, dpi=160)
+    fig.savefig(path)
     plt.close(fig)
 
 
 def plot_snapshots(res, args, path):
+    """Cell configuration and net polarization through one steady cycle.
+    Lengths normalized by the reference rms end-to-end length r_e."""
     ts, Lam, XJ, P = res["ts"], res["Lam"], res["XJ"], res["P"]
     X, is_top = res["X"], res["is_top"]
+    r_e = res["r_e"]
+    Ps = P_star_of(args, r_e)
+    load = getattr(args, "load", "piezo")
     nsnap = args.snapshots
     t0 = max(res["t_end"] - res["T"], ts[0])         # final drive period
     targets = np.linspace(t0, res["t_end"], nsnap)
     idx = [int(np.argmin(np.abs(ts - tt))) for tt in targets]
 
-    lim = res["r_e"] * 1.15
-    pscale = 0.9 * lim / (np.abs(P[:, 2]).max() + 1e-30)
+    lim = 1.15 * (np.abs(X).max() / r_e) * max(1.0, args.lam0 + args.A)
+    pmax = np.abs(P[:, 2] / Ps).max() + 1e-30
+    pscale = 0.75 * lim / pmax
 
     ncol = min(nsnap, 3)
     nrow = int(np.ceil(nsnap / ncol))
-    fig = plt.figure(figsize=(4.2 * ncol, 3.8 * nrow))
+    fig = plt.figure(figsize=(2.45 * ncol, 2.45 * nrow))
     for j, i in enumerate(idx):
         ax = fig.add_subplot(nrow, ncol, j + 1, projection="3d")
-        xJ = XJ[i]
-        lam = Lam[i]
+        xJ = XJ[i] / r_e
         ends, _, _ = ends_and_velocity(ts[i], X, is_top, args.lam0, args.A,
-                                       args.omega, getattr(args, "load", "piezo"))
+                                       args.omega, load)
+        ends = ends / r_e
         for a in range(8):
-            c = "#e69f00" if is_top[a] else "#2f5f98"   # top=special, bottom=ref
-            ax.plot(*zip(xJ, ends[a]), color=c, lw=1.6)
-            ax.scatter(*ends[a], color=c, s=28)
-        ax.scatter(*xJ, color="#1f1f1f", s=55, marker="s")
-        ax.quiver(*xJ, 0, 0, P[i, 2] * pscale, color="#882255", lw=2.5)
+            c = C_COARSE if is_top[a] else C_QUAD    # modified / reference
+            ax.plot(*zip(xJ, ends[a]), color=c, lw=1.2)
+            ax.scatter(*ends[a], color=c, s=14)
+        ax.scatter(*xJ, color=C_DC, s=26, marker="s")
+        ax.quiver(*xJ, 0, 0, P[i, 2] / Ps * pscale, color="#6a4c93", lw=2.0)
         ax.set(xlim=(-lim, lim), ylim=(-lim, lim), zlim=(-lim, lim))
-        ax.set_title(rf"$t={ts[i]:.2f}$, $\lambda={lam:.3f}$", fontsize=9)
+        ax.text2D(0.04, 0.93, rf"$\lambda={Lam[i]:.2f}$", transform=ax.transAxes,
+                  fontsize=8.5)
         ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
-    fig.suptitle("RVE snapshots (blue=reference, orange=special, "
-                 "magenta=net P, scaled)", fontsize=10)
+        ax.grid(False)
+        for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
+            pane.pane.set_edgecolor("#dddddd")
+            pane.pane.set_alpha(0.25)
     fig.tight_layout()
-    fig.savefig(path, dpi=160)
+    fig.savefig(path)
     plt.close(fig)
 
 
@@ -329,6 +394,7 @@ def summary(res, args):
     a_qu = np.dot(Pz - pmean, c) / np.dot(c, c)
     phase = np.degrees(np.arctan2(a_qu, a_in))
     c_ref = res["k_ref"] * args.tau
+    Pstar = P_star_of(args, res["r_e"])
     lines = [
         "=" * 64,
         "Segmental-coarsening / quadrupole RVE summary",
@@ -347,9 +413,10 @@ def summary(res, args):
         f"  omega*tau_ref : {args.omega*args.tau:.3g}",
         f"  omega*tau_top : {args.omega*args.drag_factor*args.m*args.tau:.3g}",
         "-" * 64,
-        f"  mean  P_z (static piezo) : {pmean:.4e}",
-        f"  AC    P_z amplitude      : {pac:.4e}",
-        f"  P_z phase vs sin(wt)     : {phase:.1f} deg",
+        f"  P_star                   : {Pstar:.4e}",
+        f"  mean  P_3/P* (static)    : {pmean/Pstar:.4e}",
+        f"  AC    P_3/P* amplitude   : {pac/Pstar:.4e}",
+        f"  P_3 phase vs sin(wt)     : {phase:.1f} deg",
         "=" * 64,
     ]
     return "\n".join(lines)
@@ -395,8 +462,12 @@ def build_parser():
     p.add_argument("--V0", type=float, default=None,
                    help="RVE volume (default: cube volume from n,b)")
     p.add_argument("--tau", type=float, default=1.0, help="reference relaxation time")
-    p.add_argument("--lam0", type=float, default=1.5, help="mean stretch")
-    p.add_argument("--A", type=float, default=0.3, help="stretch amplitude (A<lam0)")
+    p.add_argument("--lam0", type=float, default=1.0,
+                   help="mean (reference) stretch; 1.0 is the undeformed state")
+    p.add_argument("--A", type=float, default=0.3,
+                   help="stretch amplitude; requires A<lam0 for lam(t)>0. At the "
+                        "default lam0=1 the cycle spans compression and tension, "
+                        "1-A <= lam <= 1+A")
     p.add_argument("--omega", type=float, default=0.5, help="drive angular frequency")
     p.add_argument("--dt", type=float, default=0.01, help="time step")
     p.add_argument("--periods", type=float, default=8.0, help="number of drive periods")
@@ -429,11 +500,12 @@ def main(argv=None):
     base = os.path.join(args.outdir, args.prefix)
     write_csv(res, base + "_timeseries.csv")
     if not args.no_plots:
-        plot_timeseries(res, base + "_timeseries.png")
-        plot_snapshots(res, args, base + "_snapshots.png")
+        plot_timeseries(res, args, base + f"_timeseries.{EXT}")
+        plot_snapshots(res, args, base + f"_snapshots.{EXT}")
     print(summary(res, args))
     print(f"wrote {base}_timeseries.csv"
-          + ("" if args.no_plots else f", {base}_timeseries.png, {base}_snapshots.png"))
+          + ("" if args.no_plots else
+             f", {base}_timeseries.{EXT}, {base}_snapshots.{EXT}"))
 
 
 if __name__ == "__main__":
