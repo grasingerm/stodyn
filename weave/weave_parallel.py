@@ -718,7 +718,7 @@ def analyze_statistics(x, y, u, v, ntrajs, nsteps, escape_events, dt, m, kT, max
         'x0': x[0],
         'y0': y[0],
         'xf': xea[-1],
-        'yf': xea[-1],
+        'yf': yea[-1],
         'tf': t[-1]
     }
     
